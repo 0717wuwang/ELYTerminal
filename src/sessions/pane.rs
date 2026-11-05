@@ -110,18 +110,11 @@ impl PaneNode {
                 } else {
                     available.size.width
                 };
+                let tail = (extent - head - divider).max(Pixels::ZERO);
                 let (head_size, divider_size, tail_size) = if along {
-                    (
-                        size(head, cross),
-                        size(divider, cross),
-                        size(extent - head - divider, cross),
-                    )
+                    (size(head, cross), size(divider, cross), size(tail, cross))
                 } else {
-                    (
-                        size(cross, head),
-                        size(cross, divider),
-                        size(cross, extent - head - divider),
-                    )
+                    (size(cross, head), size(cross, divider), size(cross, tail))
                 };
                 let at = |offset: Pixels| {
                     if along {
@@ -141,6 +134,9 @@ impl PaneNode {
 }
 
 /// A tree laid out in a box: where each pane draws, and the separators between them.
+///
+/// The render goes through gpui flex (`workspace::panes`); this absolute projection serves
+/// a drag's hit-testing of which pane a point lands in.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Layout {
     /// Each leaf's rectangle, in layout order.
@@ -162,7 +158,13 @@ mod tests {
     fn c() -> EntityId {
         3u64.into()
     }
-
+    /// A box at `x`,`y` of `w` by `h`.
+    fn bounds(x: f32, y: f32, w: f32, h: f32) -> Bounds<Pixels> {
+        Bounds::new(point(px(x), px(y)), size(px(w), px(h)))
+    }
+    fn px(v: f32) -> Pixels {
+        gpui::px(v)
+    }
     /// Splits the root leaf; the added pane becomes the second child.
     #[test]
     fn splits_root_leaf_right() {
@@ -231,5 +233,87 @@ mod tests {
         let mut root = PaneNode::leaf(a());
         root.split(a(), b(), Axis::LeftRight);
         assert!(!root.remove(c()));
+    }
+
+    /// A 200-wide box split in two at half leaves two 99-wide panes and a 2-wide divider between them.
+    #[test]
+    fn lays_out_a_split_side_by_side() {
+        let mut root = PaneNode::leaf(a());
+        root.split(a(), b(), Axis::LeftRight);
+        let layout = root.layout(bounds(0., 0., 200., 100.), px(2.));
+        assert_eq!(
+            layout.panes,
+            vec![
+                (a(), bounds(0., 0., 99., 100.)),
+                (b(), bounds(101., 0., 99., 100.))
+            ]
+        );
+        assert_eq!(layout.dividers, vec![bounds(99., 0., 2., 100.)]);
+    }
+
+    /// A stacked split cuts the height instead, the divider between the two.
+    #[test]
+    fn lays_out_a_split_stacked() {
+        let mut root = PaneNode::leaf(a());
+        root.split(a(), b(), Axis::TopBottom);
+        let layout = root.layout(bounds(0., 0., 100., 202.), px(2.));
+        assert_eq!(
+            layout.panes,
+            vec![
+                (a(), bounds(0., 0., 100., 100.)),
+                (b(), bounds(0., 102., 100., 100.))
+            ]
+        );
+        assert_eq!(layout.dividers, vec![bounds(0., 100., 100., 2.)]);
+    }
+
+    /// A split of a split places every leaf within the box, nested cuts inside their subtree's share.
+    #[test]
+    fn lays_out_a_split_of_a_split() {
+        let mut root = PaneNode::leaf(a());
+        root.split(a(), b(), Axis::LeftRight);
+        root.split(b(), c(), Axis::TopBottom);
+        let layout = root.layout(bounds(0., 0., 202., 100.), px(2.));
+        // a: left half whole; b: right half's top; c: right half's bottom.
+        assert_eq!(layout.panes[0], (a(), bounds(0., 0., 100., 100.)));
+        assert_eq!(layout.panes[1], (b(), bounds(102., 0., 100., 49.)));
+        assert_eq!(layout.panes[2], (c(), bounds(102., 51., 100., 49.)));
+        // One divider per split: the outer between a and the right half, the inner between b and c.
+        assert_eq!(layout.dividers.len(), 2);
+    }
+
+    /// A zero divider leaves no separator rectangle and the two panes touching.
+    #[test]
+    fn lays_out_without_a_divider() {
+        let mut root = PaneNode::leaf(a());
+        root.split(a(), b(), Axis::LeftRight);
+        let layout = root.layout(bounds(0., 0., 200., 100.), px(0.));
+        assert!(layout.dividers.is_empty());
+        assert_eq!(
+            layout.panes,
+            vec![
+                (a(), bounds(0., 0., 100., 100.)),
+                (b(), bounds(100., 0., 100., 100.))
+            ]
+        );
+    }
+
+    /// A box too small for even the divider clamps both panes to nothing rather than going negative.
+    #[test]
+    fn clamps_a_box_smaller_than_the_divider() {
+        let mut root = PaneNode::leaf(a());
+        root.split(a(), b(), Axis::LeftRight);
+        let layout = root.layout(bounds(0., 0., 1., 100.), px(2.));
+        assert_eq!(layout.panes[0].1.size.width, px(0.));
+        assert_eq!(layout.panes[1].1.size.width, px(0.));
+    }
+
+    /// One pane alone fills the box whole.
+    #[test]
+    fn lays_out_a_single_pane_whole() {
+        let root = PaneNode::leaf(a());
+        let layout = root.layout(bounds(0., 0., 200., 100.), px(2.));
+        assert_eq!(layout.panes, vec![(a(), bounds(0., 0., 200., 100.))]);
+        assert!(layout.dividers.is_empty());
     }
 }

@@ -27,7 +27,10 @@ fn draw(
     match node {
         PaneNode::Leaf(id) => match leaf(*id) {
             Some(view) => view.into_any_element(),
-            None => div().into_any_element(),
+            None => {
+                log::warn!("app: session pane {id} has no view");
+                div().into_any_element()
+            }
         },
         PaneNode::Split {
             axis,
