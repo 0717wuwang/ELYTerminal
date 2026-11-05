@@ -47,8 +47,10 @@ pub struct Session {
     pub args: Vec<String>,
     /// The first pane's launch: its shell, arguments and variables; a split reuses it at its own folder.
     pub launch: Launch,
-    /// Each pane's view, by its id. The focused pane's is `terminal`.
+    /// Each pane's view, by its id; `terminal` is one of them, standing for the session.
     pub views: BTreeMap<PaneId, Entity<TerminalView>>,
+    /// What each split pane reports, kept open while its pane lives; the first pane's is `_events`.
+    pub pane_events: BTreeMap<PaneId, Subscription>,
     pub reports: bool,
     pub bell: bool,
     /// It started waiting on the user while hidden.
@@ -80,6 +82,26 @@ impl Session {
         })
     }
 
+    /// Drops the pane `id` and its view, its row's keys falling back to the tree's first pane; `None` while it is the row's last pane, whose row closes instead.
+    pub fn drop_pane(&mut self, id: PaneId) -> Option<Entity<TerminalView>> {
+        let view = self.views.get(&id)?.clone();
+        let (panes, focus) = self.panes.without(id, self.focus)?;
+        self.panes = panes;
+        self.focus = focus;
+        self.pane_events.remove(&id);
+        self.views.remove(&id);
+        if self.terminal.entity_id() == id {
+            match self.views.get(&focus) {
+                Some(kept) => self.terminal = kept.clone(),
+                None => log::error!("app: session pane {focus} has no view"),
+            }
+        }
+        Some(view)
+    }
+    /// Keeps the subscription that carries what the split pane `id` reports, until its pane goes.
+    pub fn register_pane(&mut self, id: PaneId, events: Subscription) {
+        self.pane_events.insert(id, events);
+    }
     /// The look its mark takes from its terminal now.
     pub fn looks(&self, cx: &App) -> Option<Look> {
         let view = self.terminal.read(cx);

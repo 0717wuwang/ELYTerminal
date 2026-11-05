@@ -205,6 +205,7 @@ pub const MESSAGES: &[(&str, &str)] = &[
     ("et.session.duplicate", "复制会话"),
     ("et.session.split_right", "向右分屏"),
     ("et.session.split_down", "向下分屏"),
+    ("et.session.close_pane", "关闭格"),
     ("et.tip.hide_sessions", "隐藏会话"),
     ("et.tip.show_sessions", "显示会话"),
     ("et.tip.hide_panel", "隐藏 Git 和文件"),

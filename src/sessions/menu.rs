@@ -8,7 +8,8 @@ use gpui::{App, Entity, EntityId};
 use crate::{sessions::pane::Axis, workspace::Workspace};
 /// What a right press on the row of session `id` offers.
 pub fn row(workspace: &Entity<Workspace>, id: EntityId, cx: &App) -> Menu {
-    let (duplicate, split_right, split_down, close) = (
+    let (duplicate, split_right, split_down, close_pane, close) = (
+        workspace.clone(),
         workspace.clone(),
         workspace.clone(),
         workspace.clone(),
@@ -39,6 +40,13 @@ pub fn row(workspace: &Entity<Workspace>, id: EntityId, cx: &App) -> Menu {
                     split_down.update(cx, |this, cx| {
                         this.split_row(id, Axis::TopBottom, window, cx)
                     })
+                }),
+        )
+        .item(
+            MenuItem::new(text(cx, "et.session.close_pane", &[]))
+                .icon(IconName::X)
+                .on_click(move |window, cx| {
+                    close_pane.update(cx, |this, cx| this.close_row(id, window, cx))
                 }),
         )
         .item(

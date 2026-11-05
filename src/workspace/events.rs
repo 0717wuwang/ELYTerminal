@@ -15,7 +15,7 @@ impl Workspace {
         let Some(index) = self
             .sessions
             .iter()
-            .position(|session| session.terminal.entity_id() == id)
+            .position(|session| session.views.contains_key(&id))
         else {
             return;
         };
@@ -53,17 +53,20 @@ impl Workspace {
                 match self.files.read(cx).path(key) {
                     Some(path) => {
                         log::info!("app: {} dragged onto the terminal", path.display());
-                        session
-                            .terminal
-                            .update(cx, |view, cx| view.type_paths(&[path], cx));
+                        session.views[&id].update(cx, |view, cx| view.type_paths(&[path], cx));
                     }
                     None => log::warn!("app: a tree drag of {key} types nothing"),
                 }
             }
             TerminalEvent::Exited(status) => {
-                let pid = session.terminal.read(cx).pid();
-                log::info!("app: session {pid}'s program ended, {status}");
-                self.close(index, window, cx);
+                if session.panes.leaves().len() > 1 {
+                    log::info!("app: session {}'s pane {id} ended, {status}", index + 1);
+                    self.close_pane(index, id, window, cx);
+                } else {
+                    let pid = session.terminal.read(cx).pid();
+                    log::info!("app: session {pid}'s program ended, {status}");
+                    self.close(index, window, cx);
+                }
                 return;
             }
         }

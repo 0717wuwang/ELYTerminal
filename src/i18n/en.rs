@@ -220,6 +220,7 @@ pub const MESSAGES: &[(&str, &str)] = &[
     ("et.session.duplicate", "Duplicate session"),
     ("et.session.split_right", "Split right"),
     ("et.session.split_down", "Split down"),
+    ("et.session.close_pane", "Close pane"),
     ("et.tip.hide_sessions", "Hide sessions"),
     ("et.tip.show_sessions", "Show sessions"),
     ("et.tip.hide_panel", "Hide Git and Files"),
