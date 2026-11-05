@@ -21,7 +21,7 @@ use crate::{
     files::{Files, Here},
     git::panel::{Acted, GitPanel},
     menus,
-    sessions::{self, Session, orb},
+    sessions::{self, Session, orb, pane::PaneNode},
     settings::{PanelTab, SettingsStore, window::OpenSettings},
     term::{Events, Launch, Pty, TerminalView},
 };
@@ -199,6 +199,8 @@ impl Workspace {
             bell: false,
             waiting: false,
             look: None,
+            panes: PaneNode::leaf(id),
+            focus: id,
             _events: events,
         });
     }

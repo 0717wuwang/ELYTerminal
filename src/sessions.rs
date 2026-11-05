@@ -25,8 +25,10 @@ use crate::{
 
 mod menu;
 pub mod orb;
+pub mod pane;
 
 use orb::Look;
+use pane::{PaneId, PaneNode};
 
 /// A program on its own terminal, as the sessions column lists it.
 pub struct Session {
@@ -51,6 +53,10 @@ pub struct Session {
     pub waiting: bool,
     /// The look its mark shows, and since when.
     pub look: Option<(Look, Instant)>,
+    /// Its terminal panes; one leaf for now.
+    pub panes: PaneNode,
+    /// The pane its keys go to.
+    pub focus: PaneId,
     pub _events: Subscription,
 }
 
