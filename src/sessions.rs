@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     path::{MAIN_SEPARATOR, Path, PathBuf},
     time::Instant,
 };
@@ -19,10 +20,9 @@ use gpui::{
 
 use crate::{
     settings::SettingsStore,
-    term::{Kind, Record, Records, State, TerminalView},
+    term::{Kind, Launch, Record, Records, State, TerminalView},
     workspace::{TITLE, Workspace},
 };
-
 mod menu;
 pub mod orb;
 pub mod pane;
@@ -45,9 +45,11 @@ pub struct Session {
     pub shell: String,
     /// The arguments its profile gave the program.
     pub args: Vec<String>,
-    /// Its shell has integration, or it reported a folder anyway.
+    /// The first pane's launch: its shell, arguments and variables; a split reuses it at its own folder.
+    pub launch: Launch,
+    /// Each pane's view, by its id. The focused pane's is `terminal`.
+    pub views: BTreeMap<PaneId, Entity<TerminalView>>,
     pub reports: bool,
-    /// A bell rang while it was hidden.
     pub bell: bool,
     /// It started waiting on the user while hidden.
     pub waiting: bool,
@@ -67,6 +69,15 @@ impl Session {
             .into_iter()
             .find(|title| !title.is_empty())
             .unwrap_or(TITLE)
+    }
+
+    /// The view of the pane its keys go to.
+    pub fn focused(&self) -> Entity<TerminalView> {
+        let id = self.focus;
+        self.views.get(&id).cloned().unwrap_or_else(|| {
+            log::error!("app: session pane {id} has no view");
+            self.terminal.clone()
+        })
     }
 
     /// The look its mark takes from its terminal now.

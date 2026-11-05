@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::time::Instant;
 
 use ely_gpui_component::{
@@ -11,10 +12,11 @@ use ely_gpui_component::{
     typography::Caption,
 };
 use gpui::{
-    Action, AnyElement, App, AppContext, Context, Entity, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, KeyBinding, ParentElement, Render, StatefulInteractiveElement,
-    StyleRefinement, Styled, Subscription, Task, Window, actions, div, prelude::FluentBuilder,
+    Action, AnyElement, AppContext, Context, Entity, FocusHandle, Focusable, InteractiveElement,
+    IntoElement, ParentElement, Render, StatefulInteractiveElement, StyleRefinement, Styled,
+    Subscription, Task, Window, actions, div, prelude::FluentBuilder,
 };
+pub use keys::bind_keys;
 
 use crate::{
     blur::Blur,
@@ -28,10 +30,12 @@ use crate::{
 
 mod events;
 mod folder;
+mod keys;
 mod panel;
 mod rename;
 mod reorder;
 mod session;
+mod split;
 mod toggles;
 mod widths;
 
@@ -62,33 +66,11 @@ pub const CONTEXT: &str = "Workspace";
 /// The window's title while the program names none.
 pub const TITLE: &str = "ELYTerminal";
 
-/// Ghostty's keys: Cmd on macOS; off it, Ctrl-Shift for keys a terminal takes, Alt for digits.
-pub fn bind_keys(cx: &mut App) {
-    let (sessions, panel, new, close, digit) = if cfg!(target_os = "macos") {
-        ("cmd-b", "cmd-alt-b", "cmd-t", "cmd-w", "cmd")
-    } else {
-        (
-            "ctrl-shift-b",
-            "ctrl-shift-alt-b",
-            "ctrl-shift-t",
-            "ctrl-shift-w",
-            "alt",
-        )
-    };
-    let context = Some(CONTEXT);
-    cx.bind_keys([
-        KeyBinding::new(sessions, ToggleSessions, context),
-        KeyBinding::new(panel, TogglePanel, context),
-        KeyBinding::new(new, NewSession, context),
-        KeyBinding::new(close, CloseSession, context),
-        KeyBinding::new("ctrl-tab", NextSession, context),
-        KeyBinding::new("ctrl-shift-tab", PreviousSession, context),
-        KeyBinding::new(&format!("{digit}-9"), LastSession, context),
-    ]);
-    cx.bind_keys(
-        (1..=8).map(|n| KeyBinding::new(&format!("{digit}-{n}"), SelectSession(n - 1), context)),
-    );
-}
+/// A cell's size in pixels before the font is measured, as a program's first grid takes it.
+pub(crate) const CELL: (u16, u16) = (8, 16);
+/// The fewest columns or lines a pane draws, so a split leaves each pane a usable grid.
+pub(crate) const MIN_COLUMNS: usize = 80;
+pub(crate) const MIN_LINES: usize = 24;
 
 /// The main window's content: sessions, the terminal, and Git or Files, in Ely's columns.
 pub struct Workspace {
@@ -177,6 +159,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         let terminal = cx.new(|cx| TerminalView::new(pty, events, window, cx));
+        let views = BTreeMap::from([(terminal.entity_id(), terminal.clone())]);
         let id = terminal.entity_id();
         let events = cx.subscribe_in(&terminal, window, move |this, _, event, window, cx| {
             this.session_event(id, event, window, cx)
@@ -186,16 +169,20 @@ impl Workspace {
             .as_ref()
             .map_or_else(String::new, |(program, _)| program.clone());
         let pid = terminal.read(cx).pid();
-        log::info!("app: session {pid} opens in {}", launch.cwd.display());
+        let reports = launch.reports;
+        let folder = launch.cwd.clone();
+        log::info!("app: session {pid} opens in {}", folder.display());
         self.sessions.push(Session {
             terminal,
             title: String::new(),
             name: String::new(),
             editing: None,
-            folder: launch.cwd,
+            folder,
             shell,
             args,
-            reports: launch.reports,
+            launch,
+            views,
+            reports,
             bell: false,
             waiting: false,
             look: None,

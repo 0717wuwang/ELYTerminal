@@ -203,6 +203,8 @@ pub const MESSAGES: &[(&str, &str)] = &[
     ("et.session.profiles", "配置文件"),
     ("et.session.close", "关闭会话"),
     ("et.session.duplicate", "复制会话"),
+    ("et.session.split_right", "向右分屏"),
+    ("et.session.split_down", "向下分屏"),
     ("et.tip.hide_sessions", "隐藏会话"),
     ("et.tip.show_sessions", "显示会话"),
     ("et.tip.hide_panel", "隐藏 Git 和文件"),
