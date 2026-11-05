@@ -49,6 +49,7 @@ impl Workspace {
             log::error!("app: session pane {target} is gone, dropping its split pane {id}");
         }
         session.focus = id;
+        cx.notify();
         log::info!("app: session pane {target} splits {axis:?} into pane {id}");
     }
 
@@ -65,7 +66,7 @@ impl Workspace {
             .iter()
             .position(|session| session.terminal.entity_id() == id);
         if let Some(index) = found {
-            let target = self.sessions[index].focus;
+            let target = self.sessions[index].focused_pane();
             self.split(index, target, axis, window, cx);
         }
     }

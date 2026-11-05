@@ -84,6 +84,31 @@ impl PaneNode {
         true
     }
 
+    /// The leaf `id` names, else the first leaf, so a focus that outlived its pane still names one.
+    pub fn focus_of(&self, id: PaneId) -> PaneId {
+        if self.holds(id) {
+            id
+        } else {
+            self.first_leaf()
+        }
+    }
+
+    /// Whether `id` is one of its leaves.
+    fn holds(&self, id: PaneId) -> bool {
+        match self {
+            PaneNode::Leaf(leaf) => *leaf == id,
+            PaneNode::Split { first, second, .. } => first.holds(id) || second.holds(id),
+        }
+    }
+
+    /// The leaf drawn first: the leftmost, then the topmost.
+    fn first_leaf(&self) -> PaneId {
+        match self {
+            PaneNode::Leaf(id) => *id,
+            PaneNode::Split { first, .. } => first.first_leaf(),
+        }
+    }
+
     /// Projects the tree into `available`, cutting each split by its `ratio` and leaving a `divider` wide between the two subtrees.
     pub fn layout(&self, available: Bounds<Pixels>, divider: Pixels) -> Layout {
         let mut layout = Layout::default();
@@ -133,10 +158,7 @@ impl PaneNode {
     }
 }
 
-/// A tree laid out in a box: where each pane draws, and the separators between them.
-///
-/// The render goes through gpui flex (`workspace::panes`); this absolute projection serves
-/// a drag's hit-testing of which pane a point lands in.
+/// Where each pane draws and the separators between them, for hit-testing a drag.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Layout {
     /// Each leaf's rectangle, in layout order.
@@ -315,5 +337,40 @@ mod tests {
         let layout = root.layout(bounds(0., 0., 200., 100.), px(2.));
         assert_eq!(layout.panes, vec![(a(), bounds(0., 0., 200., 100.))]);
         assert!(layout.dividers.is_empty());
+    }
+
+    /// The focused leaf keeps the keys while it stands.
+    #[test]
+    fn focus_stays_on_a_leaf_that_stands() {
+        let mut root = PaneNode::leaf(a());
+        root.split(a(), b(), Axis::LeftRight);
+        assert_eq!(root.focus_of(b()), b());
+    }
+
+    /// A focus whose leaf went takes the first leaf, so the keys land in a pane that stands.
+    #[test]
+    fn focus_falls_back_to_the_first_leaf() {
+        let mut root = PaneNode::leaf(a());
+        root.split(a(), b(), Axis::LeftRight);
+        assert!(root.remove(a()));
+        assert_eq!(root.focus_of(a()), b());
+    }
+
+    /// The first leaf of a split tree is its leftmost, however deep the split that holds it.
+    #[test]
+    fn focus_falls_back_to_the_leftmost_leaf() {
+        let mut root = PaneNode::leaf(a());
+        root.split(a(), b(), Axis::LeftRight);
+        root.split(b(), c(), Axis::TopBottom);
+        assert_eq!(root.focus_of(c()), c());
+        assert!(root.remove(c()));
+        assert_eq!(root.focus_of(c()), a());
+    }
+
+    /// One pane alone is every focus, even one naming a pane it never held.
+    #[test]
+    fn one_pane_is_the_focus_of_any_id() {
+        let root = PaneNode::leaf(a());
+        assert_eq!(root.focus_of(b()), a());
     }
 }

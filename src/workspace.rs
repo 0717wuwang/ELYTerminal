@@ -237,7 +237,7 @@ impl Workspace {
         session
             .terminal
             .update(cx, |view, _| view.set_front(true, window));
-        window.focus(&session.terminal.focus_handle(cx), cx);
+        window.focus(&session.focused().focus_handle(cx), cx);
         let folder = session.folder.clone();
         self.files.update(cx, |files, cx| files.show(&folder, cx));
         self.git.update(cx, |git, cx| git.show(&folder, cx));
@@ -303,6 +303,8 @@ impl Render for Workspace {
         self.background.fit(window);
         let now = Instant::now();
         self.tick(now, cx);
+        // The panes take the theme's colors before the settings borrow the context.
+        let shown = panes::shown_pane(self, cx);
         let settings = SettingsStore::get(cx);
         let workspace = cx.entity();
         // It leads the first column or ends the last.
@@ -341,7 +343,6 @@ impl Render for Workspace {
             .children(gear)
             .child(right);
         let mut shell = ColumnShell::new("workspace").glass();
-        let shown = panes::shown_pane(self, cx);
         let mut terminal = ShellColumn::new("terminal")
             .title(self.title().to_string())
             .children(shown);
