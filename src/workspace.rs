@@ -189,6 +189,7 @@ impl Workspace {
             look: None,
             panes: PaneNode::leaf(id),
             focus: id,
+            pane_events: BTreeMap::new(),
             _events: events,
         });
     }
@@ -341,7 +342,7 @@ impl Render for Workspace {
             .children(gear)
             .child(right);
         let mut shell = ColumnShell::new("workspace").glass();
-        let shown = panes::shown_pane(self, cx);
+        let shown = panes::shown_pane(self, &workspace, cx);
         let mut terminal = ShellColumn::new("terminal")
             .title(self.title().to_string())
             .children(shown);

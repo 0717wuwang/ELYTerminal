@@ -40,11 +40,12 @@ impl Workspace {
         };
         let terminal = cx.new(|cx| TerminalView::new(pty, events, window, cx));
         let id = terminal.entity_id();
-        let _events = cx.subscribe_in(&terminal, window, move |this, _, event, window, cx| {
+        let subscribed = cx.subscribe_in(&terminal, window, move |this, _, event, window, cx| {
             this.session_event(id, event, window, cx)
         });
         let session = &mut self.sessions[index];
         session.views.insert(id, terminal);
+        session.register_pane(id, subscribed);
         if !session.panes.split(target, id, axis) {
             log::error!("app: session pane {target} is gone, dropping its split pane {id}");
         }

@@ -12,6 +12,18 @@ pub enum Axis {
     TopBottom,
 }
 
+/// A step from a split down into one of its subtrees, naming where a split stands in the tree.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Branch {
+    /// The subtree drawn first.
+    First,
+    /// The subtree drawn second.
+    Second,
+}
+
+/// The least share of a split a drag leaves either side, so neither collapses and the divider stays grabbable.
+pub const MIN_RATIO: f32 = 0.1;
+
 /// A session's panes: one terminal, or a split of two subtrees along an axis.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PaneNode {
@@ -84,6 +96,42 @@ impl PaneNode {
         true
     }
 
+    /// Moves the divider of the split at `path` to `ratio` of it, keeping each side at least `MIN_RATIO`; false when `path` names no such split of `axis`.
+    pub fn resize(&mut self, path: &[Branch], axis: Axis, ratio: f32) -> bool {
+        let PaneNode::Split {
+            axis: split,
+            first,
+            second,
+            ratio: share,
+        } = self
+        else {
+            return false;
+        };
+        match path.split_first() {
+            None if *split != axis || !ratio.is_finite() => false,
+            None => {
+                *share = ratio.clamp(MIN_RATIO, 1. - MIN_RATIO);
+                true
+            }
+            Some((Branch::First, rest)) => first.resize(rest, axis, ratio),
+            Some((Branch::Second, rest)) => second.resize(rest, axis, ratio),
+        }
+    }
+
+    /// The tree and the pane its keys go to once `closed` goes, its parent split giving way to its sibling, focus falling back to the first pane; `None` while it is the only leaf, whose row closes instead.
+    pub fn without(&self, closed: PaneId, focus: PaneId) -> Option<(PaneNode, PaneId)> {
+        if self.leaves().len() <= 1 {
+            return None;
+        }
+        let mut tree = self.clone();
+        if !tree.remove(closed) {
+            return None;
+        }
+        let first = *tree.leaves().first().expect("a pane tree keeps a leaf");
+        let focus = if focus == closed { first } else { focus };
+        Some((tree, focus))
+    }
+
     /// Projects the tree into `available`, cutting each split by its `ratio` and leaving a `divider` wide between the two subtrees.
     pub fn layout(&self, available: Bounds<Pixels>, divider: Pixels) -> Layout {
         let mut layout = Layout::default();
@@ -134,9 +182,6 @@ impl PaneNode {
 }
 
 /// A tree laid out in a box: where each pane draws, and the separators between them.
-///
-/// The render goes through gpui flex (`workspace::panes`); this absolute projection serves
-/// a drag's hit-testing of which pane a point lands in.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Layout {
     /// Each leaf's rectangle, in layout order.
@@ -315,5 +360,103 @@ mod tests {
         let layout = root.layout(bounds(0., 0., 200., 100.), px(2.));
         assert_eq!(layout.panes, vec![(a(), bounds(0., 0., 200., 100.))]);
         assert!(layout.dividers.is_empty());
+    }
+
+    /// Two panes side by side, each at half.
+    fn side_by_side() -> PaneNode {
+        let mut root = PaneNode::leaf(a());
+        root.split(a(), b(), Axis::LeftRight);
+        root
+    }
+
+    /// `a` beside a stacked `b` over `c`, every divider at half.
+    fn stacked_beside() -> PaneNode {
+        let mut root = side_by_side();
+        root.split(b(), c(), Axis::TopBottom);
+        root
+    }
+
+    /// Every divider's place in the tree, the root's first.
+    fn ratios(node: &PaneNode) -> Vec<f32> {
+        match node {
+            PaneNode::Leaf(_) => Vec::new(),
+            PaneNode::Split {
+                first,
+                second,
+                ratio,
+                ..
+            } => {
+                let mut all = vec![*ratio];
+                all.extend(ratios(first));
+                all.extend(ratios(second));
+                all
+            }
+        }
+    }
+
+    /// A drag puts the divider where the pointer stands, and no side goes under `MIN_RATIO`.
+    #[test]
+    fn a_drag_moves_a_divider_within_its_bounds() {
+        let mut root = side_by_side();
+        assert!(root.resize(&[], Axis::LeftRight, 0.75));
+        assert_eq!(ratios(&root), vec![0.75]);
+        assert!(root.resize(&[], Axis::LeftRight, 1.5));
+        assert_eq!(ratios(&root), vec![1. - MIN_RATIO]);
+        assert!(root.resize(&[], Axis::LeftRight, -0.5));
+        assert_eq!(ratios(&root), vec![MIN_RATIO]);
+    }
+
+    /// A drag names its split by its way down the tree, so only that split moves.
+    #[test]
+    fn a_drag_reaches_a_nested_split() {
+        let mut root = stacked_beside();
+        assert!(root.resize(&[Branch::Second], Axis::TopBottom, 0.3));
+        assert_eq!(ratios(&root), vec![0.5, 0.3]);
+        assert!(!root.resize(&[Branch::Second], Axis::LeftRight, 0.2));
+        assert!(!root.resize(&[Branch::First], Axis::TopBottom, 0.2));
+        assert!(!root.resize(&[Branch::Second, Branch::First], Axis::TopBottom, 0.2));
+        assert!(!root.resize(&[], Axis::LeftRight, f32::NAN));
+        assert_eq!(
+            ratios(&root),
+            vec![0.5, 0.3],
+            "a refused drag moves nothing"
+        );
+    }
+
+    /// A closed pane lets its sibling take its parent's place, and the keys fall back to a pane still there.
+    #[test]
+    fn closing_a_pane_promotes_its_sibling() {
+        let root = side_by_side();
+        let (tree, focus) = root.without(a(), a()).expect("a pane is left");
+        assert_eq!(tree, PaneNode::leaf(b()));
+        assert_eq!(focus, b(), "the only pane left takes the keys");
+        let (tree, focus) = root.without(b(), a()).expect("a pane is left");
+        assert_eq!(tree, PaneNode::leaf(a()));
+        assert_eq!(focus, a(), "a pane that kept the keys keeps them");
+    }
+
+    /// A pane closed beside the focused one leaves the keys where they were.
+    #[test]
+    fn closing_another_pane_keeps_the_keys() {
+        let root = stacked_beside();
+        let (tree, focus) = root.without(c(), b()).expect("panes are left");
+        assert_eq!(tree.leaves(), vec![a(), b()]);
+        assert_eq!(focus, b());
+    }
+
+    /// A closed pane deep in the tree gives its room to its sibling, the keys falling back to the tree's first pane.
+    #[test]
+    fn closing_a_focused_pane_falls_back_to_the_first() {
+        let root = stacked_beside();
+        let (tree, focus) = root.without(b(), b()).expect("panes are left");
+        assert_eq!(tree.leaves(), vec![a(), c()]);
+        assert_eq!(focus, a(), "the tree's first pane takes the keys");
+    }
+
+    /// The only pane never leaves its tree: its program's exit closes the row instead.
+    #[test]
+    fn the_last_pane_never_leaves_its_tree() {
+        let root = PaneNode::leaf(a());
+        assert_eq!(root.without(a(), a()), None);
     }
 }
