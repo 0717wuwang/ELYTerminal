@@ -72,10 +72,7 @@ impl Workspace {
                 return;
             }
             // A pane beside the first keeps these to itself; the row still draws again below.
-            TerminalEvent::Title(_)
-            | TerminalEvent::Folder(_)
-            | TerminalEvent::Dragged(_)
-            => {
+            TerminalEvent::Title(_) | TerminalEvent::Folder(_) | TerminalEvent::Dragged(_) => {
                 log::debug!("app: session {}'s pane {id} reports alone", index + 1);
             }
         }

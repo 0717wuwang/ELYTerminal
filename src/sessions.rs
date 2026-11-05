@@ -73,9 +73,14 @@ impl Session {
             .unwrap_or(TITLE)
     }
 
+    /// The pane its keys go to: the one focused, or the first leaf once that pane went.
+    pub fn focused_pane(&self) -> PaneId {
+        self.panes.focus_of(self.focus)
+    }
+
     /// The view of the pane its keys go to.
     pub fn focused(&self) -> Entity<TerminalView> {
-        let id = self.focus;
+        let id = self.focused_pane();
         self.views.get(&id).cloned().unwrap_or_else(|| {
             log::error!("app: session pane {id} has no view");
             self.terminal.clone()

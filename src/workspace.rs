@@ -307,6 +307,8 @@ impl Render for Workspace {
         self.background.fit(window);
         let now = Instant::now();
         self.tick(now, cx);
+        // The panes take the theme's colors before the settings borrow the context.
+        let shown = panes::shown_pane(self, cx);
         let settings = SettingsStore::get(cx);
         let workspace = cx.entity();
         // It leads the first column or ends the last.
@@ -345,7 +347,6 @@ impl Render for Workspace {
             .children(gear)
             .child(right);
         let mut shell = ColumnShell::new("workspace").glass();
-        let shown = panes::shown_pane(self, &workspace, cx);
         let mut terminal = ShellColumn::new("terminal")
             .title(self.title().to_string())
             .children(shown);

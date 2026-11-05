@@ -1,46 +1,64 @@
 //! Draws a session's panes, drags the divider between two of them, and closes one.
 
-use ely_gpui_component::layout::resize_handle;
+use ely_gpui_component::{layout::resize_handle, theme::ActiveTheme as _};
 use gpui::{
-    AnyElement, App, AppContext, Context, DragMoveEvent, ElementId, EmptyView, Entity, Focusable,
-    InteractiveElement, IntoElement, ParentElement, Pixels, StatefulInteractiveElement, Styled,
-    Window, div,
+    AnyElement, AppContext as _, Context, DragMoveEvent, ElementId, EmptyView, Entity, Focusable,
+    Hsla, InteractiveElement, IntoElement, MouseDownEvent, ParentElement, Pixels,
+    StatefulInteractiveElement, Styled, Window, div,
 };
 
 use super::Workspace;
-use crate::{
-    sessions::pane::{Axis, Branch, PaneId, PaneNode},
-    term::TerminalView,
+use crate::sessions::{
+    Session,
+    pane::{Axis, Branch, PaneId, PaneNode},
 };
 
+/// The pane that holds the keys, and the colors its hairline and the dividers take.
+#[derive(Clone, Copy)]
+struct Lines {
+    focus: PaneId,
+    accent: Hsla,
+}
+
 /// The shown session's panes as the terminal column's body: one pane alone, a split as its tree.
-pub fn shown_pane(this: &Workspace, workspace: &Entity<Workspace>, cx: &App) -> Option<AnyElement> {
-    let session = this.sessions.get(this.active)?;
-    let view = |id| session.views.get(&id).cloned();
+pub fn shown_pane(workspace: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement> {
+    let index = workspace.active;
+    let session = workspace.sessions.get(index)?;
+    let lines = Lines {
+        focus: session.focused_pane(),
+        accent: cx.theme().colors.accent,
+    };
+    let this = cx.entity();
     match &session.panes {
-        PaneNode::Leaf(_) => view(session.focus).map(|view| view.into_any_element()),
-        node @ PaneNode::Split { .. } => {
-            Some(draw(node, &view, workspace, &mut Vec::new(), cx).into_any_element())
-        }
+        // One pane alone draws as it did before panes, without a frame or a press of its own.
+        PaneNode::Leaf(id) => session
+            .views
+            .get(id)
+            .map(|view| view.clone().into_any_element()),
+        node @ PaneNode::Split { .. } => Some(draw(
+            node,
+            session,
+            index,
+            lines,
+            &this,
+            &mut Vec::new(),
+            cx,
+        )),
     }
 }
 
-/// A pane's terminal, or a split's two subtrees with the divider a drag moves between them.
+/// A pane's terminal under the frame of the pane holding the keys, or a split's two subtrees with the divider a drag moves between them.
 fn draw(
     node: &PaneNode,
-    leaf: &impl Fn(PaneId) -> Option<Entity<TerminalView>>,
-    workspace: &Entity<Workspace>,
+    session: &Session,
+    index: usize,
+    lines: Lines,
+    this: &Entity<Workspace>,
     path: &mut Vec<Branch>,
-    cx: &App,
+    cx: &mut Context<Workspace>,
 ) -> AnyElement {
     match node {
-        PaneNode::Leaf(id) => match leaf(*id) {
-            Some(view) => view.into_any_element(),
-            None => {
-                log::warn!("app: session pane {id} has no view");
-                div().into_any_element()
-            }
-        },
+        PaneNode::Leaf(id) => leaf(session, *id, index, lines, cx),
         PaneNode::Split {
             axis,
             first,
@@ -54,8 +72,9 @@ fn draw(
             } else {
                 gpui::Axis::Vertical
             };
-            let dragged = workspace.clone();
+            let dragged = this.clone();
             let mine = path.clone();
+            let axis = *axis;
             let split = if row {
                 div().flex().flex_row()
             } else {
@@ -96,10 +115,10 @@ fn draw(
                 (Branch::Second, second.as_ref(), 1. - ratio),
             ] {
                 if matches!(branch, Branch::Second) {
-                    children.push(divider(cx, handle, path, *axis));
+                    children.push(divider(cx, handle, path, axis));
                 }
                 path.push(branch);
-                let pane = draw(child, leaf, workspace, path, cx);
+                let pane = draw(child, session, index, lines, this, path, cx);
                 path.pop();
                 children.push(
                     div()
@@ -115,8 +134,39 @@ fn draw(
     }
 }
 
+/// A pane's terminal, its frame when it holds the keys, and the press that gives it them.
+fn leaf(
+    session: &Session,
+    id: PaneId,
+    index: usize,
+    lines: Lines,
+    cx: &mut Context<Workspace>,
+) -> AnyElement {
+    let Some(view) = session.views.get(&id).cloned() else {
+        log::warn!("app: session pane {id} has no view");
+        return div().into_any_element();
+    };
+    let mut pane = div()
+        .size_full()
+        .on_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, window, cx| {
+            this.focus_pane(index, id, window, cx)
+        }))
+        .child(view);
+    if id == lines.focus {
+        // Over the pane, so the grid keeps the cells it had.
+        pane = pane.child(
+            div()
+                .absolute()
+                .inset_0()
+                .border_1()
+                .border_color(lines.accent),
+        );
+    }
+    pane.into_any_element()
+}
+
 /// The hairline between a split's two subtrees, which a drag moves.
-fn divider(cx: &App, split: gpui::Axis, path: &[Branch], axis: Axis) -> AnyElement {
+fn divider(cx: &gpui::App, split: gpui::Axis, path: &[Branch], axis: Axis) -> AnyElement {
     let drag = DividerDrag {
         path: path.to_vec(),
         axis,
@@ -146,6 +196,32 @@ struct DividerDrag {
 }
 
 impl Workspace {
+    /// Gives pane `id` of session `index` the keys, showing that session first.
+    pub fn focus_pane(
+        &mut self,
+        index: usize,
+        id: PaneId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(view) = self
+            .sessions
+            .get(index)
+            .and_then(|session| session.views.get(&id))
+            .cloned()
+        else {
+            log::error!("app: session {index} has no pane {id}");
+            return;
+        };
+        if index != self.active {
+            self.select(index, window, cx);
+        }
+        self.sessions[index].focus = id;
+        window.focus(&view.focus_handle(cx), cx);
+        log::debug!("app: session {} focuses pane {id}", index + 1);
+        cx.notify();
+    }
+
     /// Moves the divider of the shown session's split at `path` to `ratio` of it, as a drag does.
     pub fn drag_divider(
         &mut self,

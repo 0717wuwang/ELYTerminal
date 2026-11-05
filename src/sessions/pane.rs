@@ -1,4 +1,6 @@
-use gpui::{Bounds, EntityId, Pixels, point, size};
+//! A session's panes: one terminal, or a split of two subtrees a drag divides.
+
+use gpui::EntityId;
 
 /// A pane of a session's terminal grid, named by its `TerminalView`'s entity id.
 pub type PaneId = EntityId;
@@ -132,62 +134,30 @@ impl PaneNode {
         Some((tree, focus))
     }
 
-    /// Projects the tree into `available`, cutting each split by its `ratio` and leaving a `divider` wide between the two subtrees.
-    pub fn layout(&self, available: Bounds<Pixels>, divider: Pixels) -> Layout {
-        let mut layout = Layout::default();
-        self.place(available, divider, &mut layout);
-        layout
-    }
-
-    fn place(&self, available: Bounds<Pixels>, divider: Pixels, layout: &mut Layout) {
-        match self {
-            PaneNode::Leaf(id) => layout.panes.push((*id, available)),
-            PaneNode::Split {
-                axis,
-                first,
-                second,
-                ratio,
-            } => {
-                let (along, extent) = match axis {
-                    Axis::LeftRight => (true, available.size.width),
-                    Axis::TopBottom => (false, available.size.height),
-                };
-                let head = (extent - divider).max(Pixels::ZERO) * ratio.clamp(0., 1.);
-                let cross = if along {
-                    available.size.height
-                } else {
-                    available.size.width
-                };
-                let tail = (extent - head - divider).max(Pixels::ZERO);
-                let (head_size, divider_size, tail_size) = if along {
-                    (size(head, cross), size(divider, cross), size(tail, cross))
-                } else {
-                    (size(cross, head), size(cross, divider), size(cross, tail))
-                };
-                let at = |offset: Pixels| {
-                    if along {
-                        available.origin + point(offset, Pixels::ZERO)
-                    } else {
-                        available.origin + point(Pixels::ZERO, offset)
-                    }
-                };
-                first.place(Bounds::new(available.origin, head_size), divider, layout);
-                if divider > Pixels::ZERO {
-                    layout.dividers.push(Bounds::new(at(head), divider_size));
-                }
-                second.place(Bounds::new(at(head + divider), tail_size), divider, layout);
-            }
+    /// The leaf `id` names, else the first leaf, so a focus that outlived its pane still names one.
+    pub fn focus_of(&self, id: PaneId) -> PaneId {
+        if self.holds(id) {
+            id
+        } else {
+            self.first_leaf()
         }
     }
-}
 
-/// A tree laid out in a box for a drag's hit-testing; the render goes through gpui flex (`workspace::panes`).
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Layout {
-    /// Each leaf's rectangle, in layout order.
-    pub panes: Vec<(PaneId, Bounds<Pixels>)>,
-    /// One rectangle per split, between its two subtrees.
-    pub dividers: Vec<Bounds<Pixels>>,
+    /// Whether `id` is one of its leaves.
+    fn holds(&self, id: PaneId) -> bool {
+        match self {
+            PaneNode::Leaf(leaf) => *leaf == id,
+            PaneNode::Split { first, second, .. } => first.holds(id) || second.holds(id),
+        }
+    }
+
+    /// The leaf drawn first: the leftmost, then the topmost.
+    fn first_leaf(&self) -> PaneId {
+        match self {
+            PaneNode::Leaf(id) => *id,
+            PaneNode::Split { first, .. } => first.first_leaf(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -203,13 +173,7 @@ mod tests {
     fn c() -> EntityId {
         3u64.into()
     }
-    /// A box at `x`,`y` of `w` by `h`.
-    fn bounds(x: f32, y: f32, w: f32, h: f32) -> Bounds<Pixels> {
-        Bounds::new(point(px(x), px(y)), size(px(w), px(h)))
-    }
-    fn px(v: f32) -> Pixels {
-        gpui::px(v)
-    }
+
     /// Splits the root leaf; the added pane becomes the second child.
     #[test]
     fn splits_root_leaf_right() {
@@ -278,88 +242,6 @@ mod tests {
         let mut root = PaneNode::leaf(a());
         root.split(a(), b(), Axis::LeftRight);
         assert!(!root.remove(c()));
-    }
-
-    /// A 200-wide box split in two at half leaves two 99-wide panes and a 2-wide divider between them.
-    #[test]
-    fn lays_out_a_split_side_by_side() {
-        let mut root = PaneNode::leaf(a());
-        root.split(a(), b(), Axis::LeftRight);
-        let layout = root.layout(bounds(0., 0., 200., 100.), px(2.));
-        assert_eq!(
-            layout.panes,
-            vec![
-                (a(), bounds(0., 0., 99., 100.)),
-                (b(), bounds(101., 0., 99., 100.))
-            ]
-        );
-        assert_eq!(layout.dividers, vec![bounds(99., 0., 2., 100.)]);
-    }
-
-    /// A stacked split cuts the height instead, the divider between the two.
-    #[test]
-    fn lays_out_a_split_stacked() {
-        let mut root = PaneNode::leaf(a());
-        root.split(a(), b(), Axis::TopBottom);
-        let layout = root.layout(bounds(0., 0., 100., 202.), px(2.));
-        assert_eq!(
-            layout.panes,
-            vec![
-                (a(), bounds(0., 0., 100., 100.)),
-                (b(), bounds(0., 102., 100., 100.))
-            ]
-        );
-        assert_eq!(layout.dividers, vec![bounds(0., 100., 100., 2.)]);
-    }
-
-    /// A split of a split places every leaf within the box, nested cuts inside their subtree's share.
-    #[test]
-    fn lays_out_a_split_of_a_split() {
-        let mut root = PaneNode::leaf(a());
-        root.split(a(), b(), Axis::LeftRight);
-        root.split(b(), c(), Axis::TopBottom);
-        let layout = root.layout(bounds(0., 0., 202., 100.), px(2.));
-        // a: left half whole; b: right half's top; c: right half's bottom.
-        assert_eq!(layout.panes[0], (a(), bounds(0., 0., 100., 100.)));
-        assert_eq!(layout.panes[1], (b(), bounds(102., 0., 100., 49.)));
-        assert_eq!(layout.panes[2], (c(), bounds(102., 51., 100., 49.)));
-        // One divider per split: the outer between a and the right half, the inner between b and c.
-        assert_eq!(layout.dividers.len(), 2);
-    }
-
-    /// A zero divider leaves no separator rectangle and the two panes touching.
-    #[test]
-    fn lays_out_without_a_divider() {
-        let mut root = PaneNode::leaf(a());
-        root.split(a(), b(), Axis::LeftRight);
-        let layout = root.layout(bounds(0., 0., 200., 100.), px(0.));
-        assert!(layout.dividers.is_empty());
-        assert_eq!(
-            layout.panes,
-            vec![
-                (a(), bounds(0., 0., 100., 100.)),
-                (b(), bounds(100., 0., 100., 100.))
-            ]
-        );
-    }
-
-    /// A box too small for even the divider clamps both panes to nothing rather than going negative.
-    #[test]
-    fn clamps_a_box_smaller_than_the_divider() {
-        let mut root = PaneNode::leaf(a());
-        root.split(a(), b(), Axis::LeftRight);
-        let layout = root.layout(bounds(0., 0., 1., 100.), px(2.));
-        assert_eq!(layout.panes[0].1.size.width, px(0.));
-        assert_eq!(layout.panes[1].1.size.width, px(0.));
-    }
-
-    /// One pane alone fills the box whole.
-    #[test]
-    fn lays_out_a_single_pane_whole() {
-        let root = PaneNode::leaf(a());
-        let layout = root.layout(bounds(0., 0., 200., 100.), px(2.));
-        assert_eq!(layout.panes, vec![(a(), bounds(0., 0., 200., 100.))]);
-        assert!(layout.dividers.is_empty());
     }
 
     /// Two panes side by side, each at half.
@@ -458,5 +340,40 @@ mod tests {
     fn the_last_pane_never_leaves_its_tree() {
         let root = PaneNode::leaf(a());
         assert_eq!(root.without(a(), a()), None);
+    }
+
+    /// The focused leaf keeps the keys while it stands.
+    #[test]
+    fn focus_stays_on_a_leaf_that_stands() {
+        let mut root = PaneNode::leaf(a());
+        root.split(a(), b(), Axis::LeftRight);
+        assert_eq!(root.focus_of(b()), b());
+    }
+
+    /// A focus whose leaf went takes the first leaf, so the keys land in a pane that stands.
+    #[test]
+    fn focus_falls_back_to_the_first_leaf() {
+        let mut root = PaneNode::leaf(a());
+        root.split(a(), b(), Axis::LeftRight);
+        assert!(root.remove(a()));
+        assert_eq!(root.focus_of(a()), b());
+    }
+
+    /// The first leaf of a split tree is its leftmost, however deep the split that holds it.
+    #[test]
+    fn focus_falls_back_to_the_leftmost_leaf() {
+        let mut root = PaneNode::leaf(a());
+        root.split(a(), b(), Axis::LeftRight);
+        root.split(b(), c(), Axis::TopBottom);
+        assert_eq!(root.focus_of(c()), c());
+        assert!(root.remove(c()));
+        assert_eq!(root.focus_of(c()), a());
+    }
+
+    /// One pane alone is every focus, even one naming a pane it never held.
+    #[test]
+    fn one_pane_is_the_focus_of_any_id() {
+        let root = PaneNode::leaf(a());
+        assert_eq!(root.focus_of(b()), a());
     }
 }
