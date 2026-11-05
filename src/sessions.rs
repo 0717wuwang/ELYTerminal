@@ -57,7 +57,7 @@ pub struct Session {
     pub waiting: bool,
     /// The look its mark shows, and since when.
     pub look: Option<(Look, Instant)>,
-    /// Its terminal panes; one leaf for now.
+    /// Its terminal panes, in memory alone: a reopen starts every row whole.
     pub panes: PaneNode,
     /// The pane its keys go to.
     pub focus: PaneId,
