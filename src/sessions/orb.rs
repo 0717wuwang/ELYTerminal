@@ -25,6 +25,22 @@ pub enum Look {
     Idle,
 }
 
+/// How pressing a look is, worst first; a working pane ranks by how far it has come.
+fn rank(look: Look) -> (u8, u8) {
+    match look {
+        Look::Error => (5, 0),
+        Look::Waiting => (4, 0),
+        Look::Working(progress) => (3, progress.unwrap_or(0)),
+        Look::Idle => (1, 0),
+        Look::Done => (0, 0),
+    }
+}
+
+/// The worst look of a session's panes: error > waiting (a blocked pane) > working > idle > done, none lowest; among workings the furthest along.
+pub fn worst(looks: impl Iterator<Item = Option<Look>>) -> Option<Look> {
+    looks.flatten().max_by_key(|look| rank(*look))
+}
+
 /// One ripple, in seconds, and how far a dot one dot out from the centre lags it.
 const RIPPLE: f64 = 1.2;
 const LAG: f64 = 0.3;
@@ -202,5 +218,53 @@ mod tests {
         for look in [Look::Working(None), Look::Working(Some(40)), Look::Waiting] {
             assert!(moves(look, at(1_000_000)), "{look:?}");
         }
+    }
+
+    /// The worst of several panes' looks, none when every pane is quiet.
+    #[test]
+    fn worst_takes_the_most_pressing_look() {
+        assert_eq!(worst(std::iter::empty()), None);
+        assert_eq!(worst([None, None].into_iter()), None, "all quiet");
+        let order = [
+            Look::Error,
+            Look::Waiting,
+            Look::Working(Some(40)),
+            Look::Idle,
+            Look::Done,
+        ];
+        for (at, look) in order.iter().enumerate() {
+            assert_eq!(
+                worst(order[at..].iter().copied().map(Some)),
+                Some(*look),
+                "{look:?} leads those below it"
+            );
+            if at > 0 {
+                assert_eq!(
+                    worst(order[..at].iter().copied().map(Some)),
+                    Some(order[0]),
+                    "a pane above {look:?} masks it"
+                );
+            }
+        }
+    }
+
+    /// A quiet pane does not mask a pressed one, whichever order the panes come in.
+    #[test]
+    fn worst_does_not_let_a_quiet_pane_mask_a_pressed_one() {
+        let looks = [None, Some(Look::Waiting), None, Some(Look::Working(None))];
+        assert_eq!(worst(looks.into_iter()), Some(Look::Waiting));
+        let reversed = looks.into_iter().rev();
+        assert_eq!(worst(reversed), Some(Look::Waiting));
+    }
+
+    /// Among workings, the one furthest along sets the progress shown.
+    #[test]
+    fn worst_takes_the_furthest_working_progress() {
+        let looks = [
+            Some(Look::Working(Some(20))),
+            Some(Look::Working(None)),
+            Some(Look::Working(Some(70))),
+        ];
+        assert_eq!(worst(looks.into_iter()), Some(Look::Working(Some(70))));
     }
 }

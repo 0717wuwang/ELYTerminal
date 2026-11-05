@@ -181,7 +181,7 @@ impl PaneNode {
     }
 }
 
-/// A tree laid out in a box: where each pane draws, and the separators between them.
+/// A tree laid out in a box for a drag's hit-testing; the render goes through gpui flex (`workspace::panes`).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Layout {
     /// Each leaf's rectangle, in layout order.

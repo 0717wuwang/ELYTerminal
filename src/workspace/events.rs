@@ -12,20 +12,22 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(index) = self
+        let found = self
             .sessions
             .iter()
-            .position(|session| session.views.contains_key(&id))
-        else {
+            .position(|session| session.views.contains_key(&id));
+        let Some(index) = found else {
             return;
         };
+        // The row follows every pane; only the first names the session, moves it or ends it.
+        let first = self.sessions[index].terminal.entity_id() == id;
         let session = &mut self.sessions[index];
         match event {
-            TerminalEvent::Title(title) => {
+            TerminalEvent::Title(title) if first => {
                 log::debug!("app: session {}'s program names it {title:?}", index + 1);
                 session.title.clone_from(title);
             }
-            TerminalEvent::Folder(folder) => {
+            TerminalEvent::Folder(folder) if first => {
                 session.folder.clone_from(folder);
                 session.reports = true;
                 if index == self.active {
@@ -46,7 +48,7 @@ impl Workspace {
                 session.waiting = true;
             }
             TerminalEvent::Shows(_) | TerminalEvent::Ended(_) => {}
-            TerminalEvent::Dragged(key) => {
+            TerminalEvent::Dragged(key) if first => {
                 if index != self.active {
                     return;
                 }
@@ -68,6 +70,13 @@ impl Workspace {
                     self.close(index, window, cx);
                 }
                 return;
+            }
+            // A pane beside the first keeps these to itself; the row still draws again below.
+            TerminalEvent::Title(_)
+            | TerminalEvent::Folder(_)
+            | TerminalEvent::Dragged(_)
+            => {
+                log::debug!("app: session {}'s pane {id} reports alone", index + 1);
             }
         }
         if index == self.active {

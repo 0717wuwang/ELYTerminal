@@ -102,11 +102,22 @@ impl Session {
     pub fn register_pane(&mut self, id: PaneId, events: Subscription) {
         self.pane_events.insert(id, events);
     }
-    /// The look its mark takes from its terminal now.
+    /// The look its mark takes from its terminals now: the worst across every leaf pane.
     pub fn looks(&self, cx: &App) -> Option<Look> {
-        let view = self.terminal.read(cx);
-        let failed = view.ended().is_some_and(|code| code != 0);
-        look(view.records().shown().map(|(_, record)| record), failed)
+        orb::worst(self.leaf_views().map(|view| {
+            let view = view.read(cx);
+            let failed = view.ended().is_some_and(|code| code != 0);
+            look(view.records().shown().map(|(_, record)| record), failed)
+        }))
+    }
+
+    /// Every leaf pane's view, in layout order; a pane with no view yet is skipped.
+    fn leaf_views(&self) -> impl Iterator<Item = &Entity<TerminalView>> {
+        let views = &self.views;
+        self.panes
+            .leaves()
+            .into_iter()
+            .filter_map(move |id| views.get(&id))
     }
 
     /// Notes the look its mark takes `now`; true while the mark moves.
@@ -268,13 +279,14 @@ fn mark(session: &Session, now: Instant, cx: &App) -> Option<AnyElement> {
     };
     let pid = session.terminal.read(cx).pid() as usize;
     // Hover reads the records as they stand, so an open one follows them, and scrolls within the window.
-    let watched = session.terminal.downgrade();
+    let watched: Vec<_> = session.leaf_views().map(Entity::downgrade).collect();
     let tip = Tooltip::rich(move |window, cx| {
-        let lines = watched.upgrade().map_or_else(Vec::new, |terminal| {
-            let view = terminal.read(cx);
+        let panes = watched.iter().filter_map(|view| {
+            let view = view.upgrade()?.read(cx);
             let failed = view.ended().filter(|&code| code != 0);
-            hover(view.records(), failed, cx.global::<I18n>())
+            Some((view.records(), failed))
         });
+        let lines = hover(panes, cx.global::<I18n>());
         let room = window.viewport_size().height - rems(3.).to_pixels(window.rem_size());
         div()
             .id("session-hover")
@@ -299,14 +311,26 @@ fn mark(session: &Session, now: Instant, cx: &App) -> Option<AnyElement> {
     )
 }
 
-/// What hover shows: a line for each record, ten at most, then a failed command's status.
-pub fn hover(records: &Records, failed: Option<i32>, words: &I18n) -> Vec<SharedString> {
-    let mut lines: Vec<SharedString> = records
-        .iter()
-        .take(LISTED)
-        .map(|(id, record)| line(records, id, record, words).into())
-        .collect();
-    let more = records.iter().count().saturating_sub(LISTED);
+/// What hover shows across a session's panes: each record, ten at most, then how many more, then a failure.
+pub fn hover<'a>(
+    panes: impl Iterator<Item = (&'a Records, Option<i32>)>,
+    words: &I18n,
+) -> Vec<SharedString> {
+    let mut lines: Vec<SharedString> = Vec::new();
+    let mut more = 0usize;
+    let mut failed = None;
+    for (records, code) in panes {
+        failed = failed.or(code);
+        let count = records.iter().count();
+        let taken = LISTED.saturating_sub(lines.len()).min(count);
+        lines.extend(
+            records
+                .iter()
+                .take(taken)
+                .map(|(id, record)| line(records, id, record, words).into()),
+        );
+        more += count - taken;
+    }
     if more > 0 {
         lines.push(words.text("et.status.more", &[("count", &more.to_string())]));
     }
