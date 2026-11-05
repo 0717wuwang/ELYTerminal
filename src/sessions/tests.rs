@@ -161,6 +161,7 @@ fn hover_lists_each_record_with_its_app_then_a_failed_command() {
     let lines = hover(once((&records, None)), &english);
     assert_eq!(lines.len(), LISTED + 1);
     assert_eq!(lines[LISTED].to_string(), "3 more");
+}
 
 /// A failed command on any pane, focus or not, makes the row's look an error.
 #[test]
@@ -174,14 +175,82 @@ fn a_failed_command_on_any_pane_makes_the_row_an_error() {
         msg: None,
     };
     // The focused pane is idle and quiet; another pane's last command failed.
-    let panes = [
-        look(Some(&record), false),
-        look(Some(&record), true),
-        None,
-    ];
+    let panes = [look(Some(&record), false), look(Some(&record), true), None];
     assert_eq!(
         orb::worst(panes.into_iter()),
         Some(Look::Error),
         "a failed command off the focus pane still shows"
+    );
+}
+
+/// A blocked pane beside an idle one lights the row's warning mark, whichever pane holds the keys.
+#[test]
+fn a_blocked_pane_beside_an_idle_one_shows_in_the_row() {
+    let record = |state| Record {
+        state,
+        kind: None,
+        progress: None,
+        app: None,
+        title: None,
+        msg: None,
+    };
+    let panes = [
+        look(Some(&record(State::Idle)), false),
+        look(Some(&record(State::Blocked)), false),
+        None,
+    ];
+    assert_eq!(orb::worst(panes.into_iter()), Some(Look::Waiting));
+}
+
+/// Hover's ten lines run through a session's panes in layout order, the records past them counted as more.
+#[test]
+fn hover_lists_ten_records_across_panes() {
+    let idle = |title: &str| Record {
+        state: State::Idle,
+        kind: None,
+        progress: None,
+        app: None,
+        title: Some(title.into()),
+        msg: None,
+    };
+    let filled = |prefix: &str, count: usize| {
+        let mut records = Records::default();
+        for at in 0..count {
+            let title = format!("{prefix}{at}");
+            records.report(title.clone(), idle(&title), None);
+        }
+        records
+    };
+    let (first, second) = (filled("a", 6), filled("b", 8));
+    let english = i18n::catalogs(Language::English);
+    let lines: Vec<String> = hover([(&first, None), (&second, None)].into_iter(), &english)
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert_eq!(lines.len(), LISTED + 1);
+    assert_eq!(lines[5], "Idle: a5", "the first pane's last record");
+    assert_eq!(lines[6], "Idle: b0", "the second pane carries on");
+    assert_eq!(lines[9], "Idle: b3", "the tenth line is the last");
+    assert_eq!(lines[LISTED], "4 more", "b4 to b7 are counted, not listed");
+}
+
+/// A failure on any pane is named once, after the records, and a quiet pane after it keeps it.
+#[test]
+fn hover_names_a_failure_from_any_pane_once() {
+    let quiet = Records::default();
+    let english = i18n::catalogs(Language::English);
+    let said = |panes: [(&Records, Option<i32>); 2]| -> Vec<String> {
+        hover(panes.into_iter(), &english)
+            .iter()
+            .map(ToString::to_string)
+            .collect()
+    };
+    assert_eq!(
+        said([(&quiet, None), (&quiet, Some(2))]),
+        ["Last command exited with 2"]
+    );
+    assert_eq!(
+        said([(&quiet, Some(3)), (&quiet, None)]),
+        ["Last command exited with 3"]
     );
 }

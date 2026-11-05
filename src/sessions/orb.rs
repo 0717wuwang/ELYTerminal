@@ -36,9 +36,7 @@ fn rank(look: Look) -> (u8, u8) {
     }
 }
 
-/// The worst look of a session's panes: the most pressing one, none while every pane is quiet.
-/// The order is error > waiting (a blocked pane) > working > idle > done, none lowest.
-/// Among workings, the one furthest along sets the progress shown.
+/// The worst look of a session's panes: error > waiting (a blocked pane) > working > idle > done, none lowest; among workings the furthest along.
 pub fn worst(looks: impl Iterator<Item = Option<Look>>) -> Option<Look> {
     looks.flatten().max_by_key(|look| rank(*look))
 }
@@ -225,9 +223,8 @@ mod tests {
     /// The worst of several panes' looks, none when every pane is quiet.
     #[test]
     fn worst_takes_the_most_pressing_look() {
-        let none = || None;
         assert_eq!(worst(std::iter::empty()), None);
-        assert_eq!(worst([none(), none()].into_iter()), None, "all quiet");
+        assert_eq!(worst([None, None].into_iter()), None, "all quiet");
         let order = [
             Look::Error,
             Look::Waiting,
@@ -241,11 +238,13 @@ mod tests {
                 Some(*look),
                 "{look:?} leads those below it"
             );
-            assert_eq!(
-                worst(order[..at].iter().copied().map(Some)),
-                order[0],
-                "a pane above {look:?} masks it"
-            );
+            if at > 0 {
+                assert_eq!(
+                    worst(order[..at].iter().copied().map(Some)),
+                    Some(order[0]),
+                    "a pane above {look:?} masks it"
+                );
+            }
         }
     }
 

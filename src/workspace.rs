@@ -226,18 +226,21 @@ impl Workspace {
         if index != self.active
             && let Some(hidden) = self.sessions.get(self.active)
         {
-            hidden.terminal.update(cx, |view, cx| {
-                view.let_go(cx);
-                view.set_front(false, window);
-            });
+            for view in hidden.views.values() {
+                view.update(cx, |view, cx| {
+                    view.let_go(cx);
+                    view.set_front(false, window);
+                });
+            }
         }
         let session = &mut self.sessions[index];
         session.bell = false;
         session.waiting = false;
-        session
-            .terminal
-            .update(cx, |view, _| view.set_front(true, window));
-        window.focus(&session.terminal.focus_handle(cx), cx);
+        // Every pane of the shown session draws again, keys back in the pane it left them in.
+        for view in session.views.values() {
+            view.update(cx, |view, _| view.set_front(true, window));
+        }
+        window.focus(&session.focused().focus_handle(cx), cx);
         let folder = session.folder.clone();
         self.files.update(cx, |files, cx| files.show(&folder, cx));
         self.git.update(cx, |git, cx| git.show(&folder, cx));

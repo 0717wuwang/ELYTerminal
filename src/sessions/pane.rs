@@ -65,7 +65,6 @@ impl PaneNode {
         }
     }
 
-
     /// Removes the leaf `target`, its parent split giving way to its sibling; false when no leaf is `target`.
     pub fn remove(&mut self, target: PaneId) -> bool {
         let sibling = match self {
@@ -134,10 +133,7 @@ impl PaneNode {
     }
 }
 
-/// A tree laid out in a box: where each pane draws, and the separators between them.
-///
-/// The render goes through gpui flex (`workspace::panes`); this absolute projection serves
-/// a drag's hit-testing of which pane a point lands in.
+/// A tree laid out in a box for a drag's hit-testing; the render goes through gpui flex (`workspace::panes`).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Layout {
     /// Each leaf's rectangle, in layout order.

@@ -47,7 +47,7 @@ pub struct Session {
     pub args: Vec<String>,
     /// The first pane's launch: its shell, arguments and variables; a split reuses it at its own folder.
     pub launch: Launch,
-    /// Each pane's view, by its id. The focused pane's is `terminal`.
+    /// Each pane's view, by its id; `terminal` is the first pane's.
     pub views: BTreeMap<PaneId, Entity<TerminalView>>,
     pub reports: bool,
     pub bell: bool,
@@ -82,17 +82,20 @@ impl Session {
 
     /// The look its mark takes from its terminals now: the worst across every leaf pane.
     pub fn looks(&self, cx: &App) -> Option<Look> {
-        worst(self.leaf_views().map(|view| {
+        orb::worst(self.leaf_views().map(|view| {
             let view = view.read(cx);
             let failed = view.ended().is_some_and(|code| code != 0);
-            Some(look(view.records().shown().map(|(_, record)| record), failed))
+            look(view.records().shown().map(|(_, record)| record), failed)
         }))
     }
 
     /// Every leaf pane's view, in layout order; a pane with no view yet is skipped.
-    pub fn leaf_views(&self) -> impl Iterator<Item = &Entity<TerminalView>> {
+    fn leaf_views(&self) -> impl Iterator<Item = &Entity<TerminalView>> {
         let views = &self.views;
-        self.panes.leaves().into_iter().filter_map(move |id| views.get(&id))
+        self.panes
+            .leaves()
+            .into_iter()
+            .filter_map(move |id| views.get(&id))
     }
 
     /// Notes the look its mark takes `now`; true while the mark moves.
@@ -286,7 +289,7 @@ fn mark(session: &Session, now: Instant, cx: &App) -> Option<AnyElement> {
     )
 }
 
-/// What hover shows across a session's panes: a line for each record, ten at most, then how many more, then a failed command's status.
+/// What hover shows across a session's panes: each record, ten at most, then how many more, then a failure.
 pub fn hover<'a>(
     panes: impl Iterator<Item = (&'a Records, Option<i32>)>,
     words: &I18n,
@@ -295,11 +298,9 @@ pub fn hover<'a>(
     let mut more = 0usize;
     let mut failed = None;
     for (records, code) in panes {
-        if code.is_some() {
-            failed = code;
-        }
+        failed = failed.or(code);
         let count = records.iter().count();
-        let taken = (LISTED - lines.len().min(LISTED)).min(count);
+        let taken = LISTED.saturating_sub(lines.len()).min(count);
         lines.extend(
             records
                 .iter()
