@@ -65,6 +65,7 @@ impl PaneNode {
         }
     }
 
+
     /// Removes the leaf `target`, its parent split giving way to its sibling; false when no leaf is `target`.
     pub fn remove(&mut self, target: PaneId) -> bool {
         let sibling = match self {
