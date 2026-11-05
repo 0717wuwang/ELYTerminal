@@ -1,4 +1,4 @@
-use gpui::EntityId;
+use gpui::{Bounds, EntityId, Pixels, point, size};
 
 /// A pane of a session's terminal grid, named by its `TerminalView`'s entity id.
 pub type PaneId = EntityId;
@@ -83,6 +83,70 @@ impl PaneNode {
         *self = sibling.as_ref().clone();
         true
     }
+
+    /// Projects the tree into `available`, cutting each split by its `ratio` and leaving a `divider` wide between the two subtrees.
+    pub fn layout(&self, available: Bounds<Pixels>, divider: Pixels) -> Layout {
+        let mut layout = Layout::default();
+        self.place(available, divider, &mut layout);
+        layout
+    }
+
+    fn place(&self, available: Bounds<Pixels>, divider: Pixels, layout: &mut Layout) {
+        match self {
+            PaneNode::Leaf(id) => layout.panes.push((*id, available)),
+            PaneNode::Split {
+                axis,
+                first,
+                second,
+                ratio,
+            } => {
+                let (along, extent) = match axis {
+                    Axis::LeftRight => (true, available.size.width),
+                    Axis::TopBottom => (false, available.size.height),
+                };
+                let head = (extent - divider).max(Pixels::ZERO) * ratio.clamp(0., 1.);
+                let cross = if along {
+                    available.size.height
+                } else {
+                    available.size.width
+                };
+                let (head_size, divider_size, tail_size) = if along {
+                    (
+                        size(head, cross),
+                        size(divider, cross),
+                        size(extent - head - divider, cross),
+                    )
+                } else {
+                    (
+                        size(cross, head),
+                        size(cross, divider),
+                        size(cross, extent - head - divider),
+                    )
+                };
+                let at = |offset: Pixels| {
+                    if along {
+                        available.origin + point(offset, Pixels::ZERO)
+                    } else {
+                        available.origin + point(Pixels::ZERO, offset)
+                    }
+                };
+                first.place(Bounds::new(available.origin, head_size), divider, layout);
+                if divider > Pixels::ZERO {
+                    layout.dividers.push(Bounds::new(at(head), divider_size));
+                }
+                second.place(Bounds::new(at(head + divider), tail_size), divider, layout);
+            }
+        }
+    }
+}
+
+/// A tree laid out in a box: where each pane draws, and the separators between them.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Layout {
+    /// Each leaf's rectangle, in layout order.
+    pub panes: Vec<(PaneId, Bounds<Pixels>)>,
+    /// One rectangle per split, between its two subtrees.
+    pub dividers: Vec<Bounds<Pixels>>,
 }
 
 #[cfg(test)]

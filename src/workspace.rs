@@ -32,6 +32,7 @@ mod events;
 mod folder;
 mod keys;
 mod panel;
+mod panes;
 mod rename;
 mod reorder;
 mod session;
@@ -340,10 +341,7 @@ impl Render for Workspace {
             .children(gear)
             .child(right);
         let mut shell = ColumnShell::new("workspace").glass();
-        let shown = self
-            .sessions
-            .get(self.active)
-            .map(|session| session.terminal.clone());
+        let shown = panes::shown_pane(self, cx);
         let mut terminal = ShellColumn::new("terminal")
             .title(self.title().to_string())
             .children(shown);
