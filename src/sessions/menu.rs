@@ -54,11 +54,7 @@ pub fn row(workspace: &Entity<Workspace>, id: EntityId, cx: &App) -> Menu {
                 .icon(IconName::X)
                 .on_click(move |window, cx| {
                     close.update(cx, |this, cx| {
-                        let found = this
-                            .sessions()
-                            .iter()
-                            .position(|session| session.terminal.entity_id() == id);
-                        if let Some(index) = found {
+                        if let Some(index) = this.session_index(id) {
                             this.close(index, window, cx);
                         }
                     })

@@ -260,6 +260,11 @@ pub const MESSAGES: &[(&str, &str)] = &[
     ("et.session.split_right", "Split right"),
     ("et.session.split_down", "Split down"),
     ("et.session.close_pane", "Close pane"),
+    ("et.pane.too_small", "Pane too small to split"),
+    (
+        "et.pane.too_small_body",
+        "It holds {across} cells across; a split needs {needed}.",
+    ),
     ("et.tip.hide_sessions", "Hide sessions"),
     ("et.tip.show_sessions", "Show sessions"),
     ("et.tip.hide_panel", "Hide Git and Files"),

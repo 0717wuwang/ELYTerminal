@@ -239,6 +239,11 @@ pub const MESSAGES: &[(&str, &str)] = &[
     ("et.session.split_right", "向右分屏"),
     ("et.session.split_down", "向下分屏"),
     ("et.session.close_pane", "关闭格"),
+    ("et.pane.too_small", "格太小，无法分屏"),
+    (
+        "et.pane.too_small_body",
+        "此方向只有 {across} 个单元格，分屏需要 {needed} 个。",
+    ),
     ("et.tip.hide_sessions", "隐藏会话"),
     ("et.tip.show_sessions", "显示会话"),
     ("et.tip.hide_panel", "隐藏 Git 和文件"),

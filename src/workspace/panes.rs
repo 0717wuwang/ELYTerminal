@@ -3,8 +3,8 @@
 use ely_gpui_component::{layout::resize_handle, theme::ActiveTheme as _};
 use gpui::{
     AnyElement, App, AppContext as _, Context, Div, DragMoveEvent, ElementId, EmptyView, Entity,
-    Focusable, Hsla, InteractiveElement, IntoElement, MouseDownEvent, ParentElement, Pixels,
-    StatefulInteractiveElement, Styled, Window, div,
+    EntityId, Focusable, Hsla, InteractiveElement, IntoElement, MouseDownEvent, ParentElement,
+    Pixels, StatefulInteractiveElement, Styled, Window, div,
 };
 
 use super::{
@@ -26,7 +26,10 @@ struct Lines {
 /// The shown session's panes as the terminal column's body: one pane alone, a split as its tree.
 pub fn shown_pane(workspace: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement> {
     let index = workspace.active;
-    let session = workspace.sessions.get(index)?;
+    let Some(session) = workspace.sessions.get(index) else {
+        log::warn!("app: no session {} to draw its panes", index + 1);
+        return None;
+    };
     let lines = Lines {
         focus: session.focused_pane(),
         accent: cx.theme().colors.accent,
@@ -34,10 +37,13 @@ pub fn shown_pane(workspace: &Workspace, cx: &mut Context<Workspace>) -> Option<
     let this = cx.entity();
     match &session.panes {
         // One pane alone draws as it did before panes, without a frame or a press of its own.
-        PaneNode::Leaf(id) => session
-            .views
-            .get(id)
-            .map(|view| view.clone().into_any_element()),
+        PaneNode::Leaf(id) => match session.views.get(id) {
+            Some(view) => Some(view.clone().into_any_element()),
+            None => {
+                log::warn!("app: session pane {id} has no view");
+                None
+            }
+        },
         node @ PaneNode::Split { .. } => Some(draw(
             node,
             session,
@@ -226,6 +232,13 @@ impl SplitDrag {
 }
 
 impl Workspace {
+    /// The session one of whose panes is `view`, `None` once it went.
+    pub(crate) fn session_index(&self, view: EntityId) -> Option<usize> {
+        self.sessions
+            .iter()
+            .position(|session| session.views.contains_key(&view))
+    }
+
     /// Gives pane `id` of session `index` the keys, showing that session first.
     pub fn focus_pane(
         &mut self,
@@ -297,14 +310,12 @@ impl Workspace {
 
     /// Closes the pane holding the keys of the session whose row was pressed.
     pub fn close_row(&mut self, id: PaneId, window: &mut Window, cx: &mut Context<Self>) {
-        let found = self
-            .sessions
-            .iter()
-            .position(|session| session.terminal.entity_id() == id);
-        if let Some(index) = found {
-            let target = self.sessions[index].focus;
-            self.close_pane(index, target, window, cx);
-        }
+        let Some(index) = self.session_index(id) else {
+            log::debug!("app: the session of pane {id} is gone");
+            return;
+        };
+        let target = self.sessions[index].focused_pane();
+        self.close_pane(index, target, window, cx);
     }
     /// Moves the keys to the pane nearest the one holding them, if one lies that way.
     pub fn focus_side(
@@ -335,7 +346,8 @@ pub fn pane_actions(div: Div, cx: &mut Context<Workspace>) -> Div {
         this.split_focused(Axis::TopBottom, window, cx)
     }))
     .on_action(cx.listener(|this, _: &ClosePane, window, cx| {
-        let (index, target) = (this.active, this.sessions[this.active].focus);
+        let index = this.active;
+        let target = this.sessions[index].focused_pane();
         this.close_pane(index, target, window, cx)
     }))
     .on_action(cx.listener(|this, _: &FocusPaneLeft, window, cx| {

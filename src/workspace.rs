@@ -177,6 +177,7 @@ impl Workspace {
             .map_or_else(String::new, |(program, _)| program.clone());
         let pid = terminal.read(cx).pid();
         let reports = launch.reports;
+        let folders = BTreeMap::from([(id, launch.cwd.clone())]);
         let folder = launch.cwd.clone();
         log::info!("app: session {pid} opens in {}", folder.display());
         self.sessions.push(Session {
@@ -189,6 +190,7 @@ impl Workspace {
             args,
             launch,
             views,
+            folders,
             reports,
             bell: false,
             waiting: false,

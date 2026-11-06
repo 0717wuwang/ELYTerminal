@@ -54,7 +54,7 @@ impl Workspace {
             StartIn::Session => Some(
                 self.sessions
                     .get(self.active)
-                    .map_or(Start::Home, |session| Start::In(session.folder.clone())),
+                    .map_or(Start::Home, |session| Start::In(session.focus_folder())),
             ),
             StartIn::Folder => match settings::start_folder(&settings.start_folder) {
                 Ok(folder) => Some(Start::In(folder)),
@@ -66,21 +66,15 @@ impl Workspace {
         }
     }
 
-    /// Session `id` again: the shell it runs, in the folder it last reported.
+    /// The shown session again: the shell it runs, in the folder it last reported.
     pub fn duplicate(&mut self, id: EntityId, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((shell, args, folder, index)) = self
-            .sessions
-            .iter()
-            .enumerate()
-            .find(|(_, session)| session.terminal.entity_id() == id)
-            .map(|(index, session)| {
-                let shell = session.shell.clone();
-                (shell, session.args.clone(), session.folder.clone(), index)
-            })
-        else {
+        let Some(index) = self.session_index(id) else {
             log::error!("app: there is no session {id:?} to duplicate");
             return;
         };
+        let shell = self.sessions[index].shell.clone();
+        let args = self.sessions[index].args.clone();
+        let folder = self.sessions[index].focus_folder();
         log::info!("app: session {id:?} duplicates into {}", folder.display());
         if let Err(error) = self.open(&shell, args, Start::In(folder), Some(index + 1), window, cx)
         {

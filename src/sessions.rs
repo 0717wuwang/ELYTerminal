@@ -49,6 +49,8 @@ pub struct Session {
     pub launch: Launch,
     /// Each pane's view, by its id; `terminal` is one of them, standing for the session.
     pub views: BTreeMap<PaneId, Entity<TerminalView>>,
+    /// Where each pane's program last stood, as it reported; `folder` stays the first pane's.
+    pub folders: BTreeMap<PaneId, PathBuf>,
     /// What each split pane reports, kept open while its pane lives; the first pane's is `_events`.
     pub pane_events: BTreeMap<PaneId, Subscription>,
     pub reports: bool,
@@ -78,6 +80,14 @@ impl Session {
         self.panes.focus_of(self.focus)
     }
 
+    /// Where the pane holding the keys stands, else the folder the session started in.
+    pub fn focus_folder(&self) -> PathBuf {
+        self.folders
+            .get(&self.focused_pane())
+            .cloned()
+            .unwrap_or_else(|| self.folder.clone())
+    }
+
     /// The view of the pane its keys go to.
     pub fn focused(&self) -> Entity<TerminalView> {
         let id = self.focused_pane();
@@ -95,6 +105,7 @@ impl Session {
         self.focus = focus;
         self.pane_events.remove(&id);
         self.views.remove(&id);
+        self.folders.remove(&id);
         if self.terminal.entity_id() == id {
             match self.views.get(&focus) {
                 Some(kept) => self.terminal = kept.clone(),
@@ -207,7 +218,7 @@ pub fn row(
                 }),
         );
     let item = match &session.editing {
-        Some((input, _)) => item.editor(editor(workspace, session, input)),
+        Some((input, _)) => item.editor(editor(workspace, input)),
         None => item,
     };
     let mark = mark(session, now, cx);
@@ -237,19 +248,15 @@ pub fn row(
 }
 
 /// The field a session's row renames it with; Escape drops what it holds.
-fn editor(
-    workspace: &Entity<Workspace>,
-    session: &Session,
-    input: &Entity<TextInput>,
-) -> impl IntoElement {
-    let (workspace, id) = (workspace.clone(), session.terminal.entity_id());
+fn editor(workspace: &Entity<Workspace>, input: &Entity<TextInput>) -> impl IntoElement {
+    let workspace = workspace.clone();
     div()
         // A press selecting text stays the field's: the row would lift it for a drag.
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_key_down(move |event, window, cx| {
             if event.keystroke.key == "escape" {
                 cx.stop_propagation();
-                workspace.update(cx, |this, cx| this.end_rename(id, false, window, cx));
+                workspace.update(cx, |this, cx| this.end_rename(false, window, cx));
             }
         })
         .child(Input::new(input).size(ControlSize::Sm))

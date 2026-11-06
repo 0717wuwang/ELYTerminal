@@ -12,11 +12,8 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let found = self
-            .sessions
-            .iter()
-            .position(|session| session.views.contains_key(&id));
-        let Some(index) = found else {
+        let Some(index) = self.session_index(id) else {
+            log::debug!("app: a pane that went reported");
             return;
         };
         // The row follows every pane; only the first names the session, moves it or ends it.
@@ -27,12 +24,15 @@ impl Workspace {
                 log::debug!("app: session {}'s program names it {title:?}", index + 1);
                 session.title.clone_from(title);
             }
-            TerminalEvent::Folder(folder) if first => {
-                session.folder.clone_from(folder);
-                session.reports = true;
-                if index == self.active {
-                    self.files.update(cx, |files, cx| files.show(folder, cx));
-                    self.git.update(cx, |git, cx| git.show(folder, cx));
+            TerminalEvent::Folder(folder) => {
+                session.folders.insert(id, folder.clone());
+                if first {
+                    session.folder.clone_from(folder);
+                    session.reports = true;
+                    if index == self.active {
+                        self.files.update(cx, |files, cx| files.show(folder, cx));
+                        self.git.update(cx, |git, cx| git.show(folder, cx));
+                    }
                 }
             }
             TerminalEvent::Bell if index != self.active => {
@@ -65,14 +65,14 @@ impl Workspace {
                     log::info!("app: session {}'s pane {id} ended, {status}", index + 1);
                     self.close_pane(index, id, window, cx);
                 } else {
-                    let pid = session.terminal.read(cx).pid();
+                    let pid = session.focused().read(cx).pid();
                     log::info!("app: session {pid}'s program ended, {status}");
                     self.close(index, window, cx);
                 }
                 return;
             }
             // A pane beside the first keeps these to itself; the row still draws again below.
-            TerminalEvent::Title(_) | TerminalEvent::Folder(_) | TerminalEvent::Dragged(_) => {
+            TerminalEvent::Title(_) | TerminalEvent::Dragged(_) => {
                 log::debug!("app: session {}'s pane {id} reports alone", index + 1);
             }
         }
@@ -89,8 +89,18 @@ impl Workspace {
             .iter()
             .enumerate()
             .find_map(|(index, session)| {
-                let focus = session.terminal.update(cx, |view, _| view.pressed(tag))?;
-                Some((index, focus))
+                // Any pane of the session may have posted it.
+                session
+                    .panes
+                    .leaves()
+                    .into_iter()
+                    .find_map(|id| {
+                        session
+                            .views
+                            .get(&id)?
+                            .update(cx, |view, _| view.pressed(tag))
+                    })
+                    .map(|focus| (index, focus))
             });
         let Some((index, focus)) = found else {
             return false;
