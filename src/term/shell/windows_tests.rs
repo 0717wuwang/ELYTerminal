@@ -298,8 +298,9 @@ fn cmd_marks_its_prompts_and_reports_its_folder() {
     // A name like a percent escape stays as it stands.
     let odd = start.join("rel%20one");
     std::fs::create_dir_all(&odd).expect("an odd folder");
-    let named = typed(&pty, &mut events, &format!("cd /d \"{}\"", odd.display()));
-    let windows = typed(&pty, &mut events, "cd /d C:\\Windows");
+    // pushd, since a user's AutoRun may swap cd for a wrapper that takes no /d.
+    let named = typed(&pty, &mut events, &format!("pushd \"{}\"", odd.display()));
+    let windows = typed(&pty, &mut events, "pushd C:\\Windows");
     pty.write(&b"exit\r"[..]);
     exited(&mut events);
     std::fs::remove_dir_all(&root).expect("cleanup");
@@ -339,7 +340,8 @@ fn a_bare_cmd_typed_in_powershell_marks_its_prompts() {
     // cmd's prompt ends no command: PowerShell's `cmd` runs on.
     let ended = |event: &PtyEvent| matches!(event, PtyEvent::Mark(Mark::Done(_), _));
     assert!(!entered.iter().any(ended), "{entered:?}");
-    let windows = typed(&pty, &mut events, "cd /d C:\\Windows");
+    // pushd, since a user's AutoRun may swap cd for a wrapper that takes no /d.
+    let windows = typed(&pty, &mut events, "pushd C:\\Windows");
     pty.write(&b"exit 7\r"[..]);
     let (back, seen) = until_folder(&mut events);
     pty.write(&b"exit\r"[..]);
