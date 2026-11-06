@@ -17,10 +17,11 @@ Settings › Terminal lists them all, as this platform binds them, and holds the
 | Focus the pane left, right, up, down | Alt-Arrow | Alt-Arrow |
 | Focus at an edge | runs round to the far side, and round again | the same |
 | Copy, paste | Cmd-C, Cmd-V | Ctrl-Shift-C, Ctrl-Shift-V; on Windows Ctrl-V pastes too |
+| Copy the selection, or paste when none | Right press, with Settings › Terminal › Right click pastes on | Right press, with that switch on; on by default on Windows |
 | Select all | Cmd-A | Ctrl-Shift-A |
 | Find | Cmd-F | Ctrl-Shift-F |
 | Bigger, smaller, reset size | Cmd-=, Cmd-minus, Cmd-0 | Ctrl-=, Ctrl-minus, Ctrl-0 |
-| Open a link | Cmd-press | Ctrl-press |
+| Open a link, underlined while the pointer is over it | Cmd-press | Ctrl-press |
 | Settings | Cmd-, | Ctrl-, |
 | Minimize | Cmd-M | |
 | Quit | Cmd-Q | Ctrl-Shift-Q |
