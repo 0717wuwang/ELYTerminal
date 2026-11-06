@@ -25,6 +25,7 @@ use crate::{
     },
 };
 
+mod pane_keys;
 pub(super) mod profiles;
 
 /// Each way Option types Alt, its key and name's key.
@@ -165,11 +166,13 @@ impl SettingsWindow {
         let keys = SettingsSection::new(word("et.terminal.shortcuts"))
             .row(KeyboardShortcutsList::new(shortcuts(cx), &self.search));
         let profiles = self.profiles_section(cx);
+        let panes = pane_keys::section(&this, cx);
         div()
             .flex()
             .flex_col()
             .gap_6()
             .child(section)
+            .child(panes)
             .child(profiles)
             .child(keys)
     }

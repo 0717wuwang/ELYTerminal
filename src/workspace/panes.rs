@@ -2,12 +2,15 @@
 
 use ely_gpui_component::{layout::resize_handle, theme::ActiveTheme as _};
 use gpui::{
-    AnyElement, AppContext as _, Context, DragMoveEvent, ElementId, EmptyView, Entity, Focusable,
-    Hsla, InteractiveElement, IntoElement, MouseDownEvent, ParentElement, Pixels,
+    AnyElement, App, AppContext as _, Context, Div, DragMoveEvent, ElementId, EmptyView, Entity,
+    Focusable, Hsla, InteractiveElement, IntoElement, MouseDownEvent, ParentElement, Pixels,
     StatefulInteractiveElement, Styled, Window, div,
 };
 
-use super::Workspace;
+use super::{
+    ClosePane, FocusPaneDown, FocusPaneLeft, FocusPaneRight, FocusPaneUp, SplitDown, SplitRight,
+    Workspace,
+};
 use crate::sessions::{
     Session,
     pane::{Axis, Branch, PaneId, PaneNode},
@@ -72,42 +75,24 @@ fn draw(
             } else {
                 gpui::Axis::Vertical
             };
-            let dragged = this.clone();
-            let mine = path.clone();
+            let drag_to = SplitDrag {
+                dragged: this.clone(),
+                mine: path.clone(),
+                handle,
+            };
             let axis = *axis;
             let split = if row {
-                div().flex().flex_row()
+                div().flex().flex_row().size_full()
             } else {
-                div().flex().flex_col()
+                div().flex().flex_col().size_full()
             };
             let split = split
                 .id(split_id(path, "pane-split"))
-                .on_drag_move::<DividerDrag>(move |event: &DragMoveEvent<DividerDrag>, _, cx| {
-                    let drag = event.drag(cx);
-                    // Every split hears the drag; only the one whose divider it is moves.
-                    if drag.path != mine {
-                        return;
-                    }
-                    let (origin, along, extent) = match handle {
-                        gpui::Axis::Horizontal => (
-                            event.bounds.origin.x,
-                            event.event.position.x,
-                            event.bounds.size.width,
-                        ),
-                        gpui::Axis::Vertical => (
-                            event.bounds.origin.y,
-                            event.event.position.y,
-                            event.bounds.size.height,
-                        ),
-                    };
-                    if extent <= Pixels::ZERO {
-                        log::warn!("app: a pane split draws no room to drag across");
-                        return;
-                    }
-                    let ratio = f32::from(along - origin) / f32::from(extent);
-                    let (path, axis) = (drag.path.clone(), drag.axis);
-                    dragged.update(cx, |this, cx| this.drag_divider(&path, axis, ratio, cx));
-                });
+                .on_drag_move::<DividerDrag>(
+                    move |event: &DragMoveEvent<DividerDrag>, window, cx| {
+                        drag_to.moved(event, window, cx)
+                    },
+                );
             let mut children = Vec::with_capacity(3);
             // A zero basis and a grow of each subtree's share; the divider takes its own grab width.
             for (branch, child, share) in [
@@ -125,6 +110,8 @@ fn draw(
                         .flex_basis(Pixels::ZERO)
                         .flex_grow(share)
                         .self_stretch()
+                        .min_w_0()
+                        .min_h_0()
                         .child(pane)
                         .into_any_element(),
                 );
@@ -193,6 +180,49 @@ struct DividerDrag {
     /// The split's place in the tree from the root.
     path: Vec<Branch>,
     axis: Axis,
+}
+
+/// The listener a split keeps for its own divider's drag.
+struct SplitDrag {
+    /// The workspace a drag tells the new ratio to.
+    dragged: Entity<Workspace>,
+    /// The split's place in the tree from the root, which names the divider dragged.
+    mine: Vec<Branch>,
+    /// The way the divider divides, as the layout measures across it.
+    handle: gpui::Axis,
+}
+
+impl SplitDrag {
+    /// Moves this split's divider to the ratio the pointer stands at, the divider's own grab width left out.
+    fn moved(&self, event: &DragMoveEvent<DividerDrag>, window: &mut Window, cx: &mut App) {
+        let drag = event.drag(cx);
+        // Every split hears the drag; only the one whose divider it is moves.
+        if drag.path != self.mine {
+            return;
+        }
+        let (origin, along, extent) = match self.handle {
+            gpui::Axis::Horizontal => (
+                event.bounds.origin.x,
+                event.event.position.x,
+                event.bounds.size.width,
+            ),
+            gpui::Axis::Vertical => (
+                event.bounds.origin.y,
+                event.event.position.y,
+                event.bounds.size.height,
+            ),
+        };
+        // The divider keeps its own grab width, so the panes share what lies past it.
+        let panes = extent - cx.theme().handle_hit().to_pixels(window.rem_size());
+        if panes <= Pixels::ZERO {
+            log::warn!("app: a pane split draws no room to drag across");
+            return;
+        }
+        let ratio = f32::from(along - origin) / f32::from(panes);
+        let (path, axis) = (drag.path.clone(), drag.axis);
+        self.dragged
+            .update(cx, |this, cx| this.drag_divider(&path, axis, ratio, cx));
+    }
 }
 
 impl Workspace {
@@ -276,4 +306,48 @@ impl Workspace {
             self.close_pane(index, target, window, cx);
         }
     }
+    /// Moves the keys to the pane nearest the one holding them, if one lies that way.
+    pub fn focus_side(
+        &mut self,
+        along: Axis,
+        forward: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let index = self.active;
+        let from = self.sessions[index].focused_pane();
+        match self.sessions[index].panes.neighbour(from, along, forward) {
+            Some(to) => self.focus_pane(index, to, window, cx),
+            None => log::debug!(
+                "app: session {} has no pane {along:?} of pane {from}",
+                index + 1
+            ),
+        }
+    }
+}
+
+/// The pane commands' handlers, on the content so their keys work wherever focus is.
+pub fn pane_actions(div: Div, cx: &mut Context<Workspace>) -> Div {
+    div.on_action(cx.listener(|this, _: &SplitRight, window, cx| {
+        this.split_focused(Axis::LeftRight, window, cx)
+    }))
+    .on_action(cx.listener(|this, _: &SplitDown, window, cx| {
+        this.split_focused(Axis::TopBottom, window, cx)
+    }))
+    .on_action(cx.listener(|this, _: &ClosePane, window, cx| {
+        let (index, target) = (this.active, this.sessions[this.active].focus);
+        this.close_pane(index, target, window, cx)
+    }))
+    .on_action(cx.listener(|this, _: &FocusPaneLeft, window, cx| {
+        this.focus_side(Axis::LeftRight, false, window, cx)
+    }))
+    .on_action(cx.listener(|this, _: &FocusPaneRight, window, cx| {
+        this.focus_side(Axis::LeftRight, true, window, cx)
+    }))
+    .on_action(cx.listener(|this, _: &FocusPaneUp, window, cx| {
+        this.focus_side(Axis::TopBottom, false, window, cx)
+    }))
+    .on_action(cx.listener(|this, _: &FocusPaneDown, window, cx| {
+        this.focus_side(Axis::TopBottom, true, window, cx)
+    }))
 }

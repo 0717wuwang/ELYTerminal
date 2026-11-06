@@ -46,12 +46,21 @@ impl Workspace {
         let session = &mut self.sessions[index];
         session.views.insert(id, terminal);
         session.register_pane(id, subscribed);
-        if !session.panes.split(target, id, axis) {
+        let split = session.panes.split(target, id, axis);
+        session.focus = id;
+        if !split {
             log::error!("app: session pane {target} is gone, dropping its split pane {id}");
         }
-        session.focus = id;
-        cx.notify();
+        // The new program takes the keys as it starts.
+        self.focus_pane(index, id, window, cx);
         log::info!("app: session pane {target} splits {axis:?} into pane {id}");
+    }
+
+    /// Splits the pane that holds the keys, as its row's menu does.
+    pub fn split_focused(&mut self, axis: Axis, window: &mut Window, cx: &mut Context<Self>) {
+        let index = self.active;
+        let target = self.sessions[index].focused_pane();
+        self.split(index, target, axis, window, cx);
     }
 
     /// Splits the pane of the session whose row was pressed, dividing the pane that holds the keys.
