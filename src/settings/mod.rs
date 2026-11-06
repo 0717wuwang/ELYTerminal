@@ -1,7 +1,9 @@
+mod panes;
 mod picture;
 mod profiles;
 mod store;
 pub mod window;
+pub use panes::PaneKey;
 
 use std::{
     env,
@@ -122,6 +124,14 @@ pub struct Settings {
     pub start_folder: String,
     /// What the new-session menu offers before the detected shells.
     pub profiles: Vec<Profile>,
+    /// The pane commands' keys, written as `Keystroke` words; absent takes the default, empty binds nothing.
+    pub key_split_right: Option<String>,
+    pub key_split_down: Option<String>,
+    pub key_close_pane: Option<String>,
+    pub key_pane_left: Option<String>,
+    pub key_pane_right: Option<String>,
+    pub key_pane_up: Option<String>,
+    pub key_pane_down: Option<String>,
     pub theme: String,
     /// The theme while the system is dark; none keeps `theme`.
     pub dark_theme: Option<String>,
@@ -210,6 +220,13 @@ impl Default for Settings {
             start_in: StartIn::Home,
             start_folder: String::new(),
             profiles: Vec::new(),
+            key_split_right: None,
+            key_split_down: None,
+            key_close_pane: None,
+            key_pane_left: None,
+            key_pane_right: None,
+            key_pane_up: None,
+            key_pane_down: None,
             theme: themes::default_id().into(),
             dark_theme: None,
             custom_themes: Vec::new(),
@@ -272,6 +289,7 @@ pub const PLACE: RangeInclusive<f32> = -32768.0..=32768.0;
 impl Settings {
     /// Every value inside its range, every theme built in; the error names the field.
     pub fn validate(&self) -> anyhow::Result<()> {
+        panes::validate(self)?;
         within("interface_size", self.interface_size, &INTERFACE_SIZE)?;
         within("font_size", self.font_size, &FONT_SIZE)?;
         within("font_weight", self.font_weight, &FONT_WEIGHT)?;

@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     path::{MAIN_SEPARATOR, Path, PathBuf},
     time::Instant,
 };
@@ -19,14 +20,15 @@ use gpui::{
 
 use crate::{
     settings::SettingsStore,
-    term::{Kind, Record, Records, State, TerminalView},
+    term::{Kind, Launch, Record, Records, State, TerminalView},
     workspace::{TITLE, Workspace},
 };
-
 mod menu;
 pub mod orb;
+pub mod pane;
 
 use orb::Look;
+use pane::{PaneId, PaneNode};
 
 /// A program on its own terminal, as the sessions column lists it.
 pub struct Session {
@@ -43,14 +45,24 @@ pub struct Session {
     pub shell: String,
     /// The arguments its profile gave the program.
     pub args: Vec<String>,
-    /// Its shell has integration, or it reported a folder anyway.
+    /// The first pane's launch: its shell, arguments and variables; a split reuses it at its own folder.
+    pub launch: Launch,
+    /// Each pane's view, by its id; `terminal` is one of them, standing for the session.
+    pub views: BTreeMap<PaneId, Entity<TerminalView>>,
+    /// Where each pane's program last stood, as it reported; `folder` stays the first pane's.
+    pub folders: BTreeMap<PaneId, PathBuf>,
+    /// What each split pane reports, kept open while its pane lives; the first pane's is `_events`.
+    pub pane_events: BTreeMap<PaneId, Subscription>,
     pub reports: bool,
-    /// A bell rang while it was hidden.
     pub bell: bool,
     /// It started waiting on the user while hidden.
     pub waiting: bool,
     /// The look its mark shows, and since when.
     pub look: Option<(Look, Instant)>,
+    /// Its terminal panes, in memory alone: a reopen starts every row whole.
+    pub panes: PaneNode,
+    /// The pane its keys go to.
+    pub focus: PaneId,
     pub _events: Subscription,
 }
 
@@ -63,11 +75,65 @@ impl Session {
             .unwrap_or(TITLE)
     }
 
-    /// The look its mark takes from its terminal now.
+    /// The pane its keys go to: the one focused, or the first leaf once that pane went.
+    pub fn focused_pane(&self) -> PaneId {
+        self.panes.focus_of(self.focus)
+    }
+
+    /// Where the pane holding the keys stands, else the folder the session started in.
+    pub fn focus_folder(&self) -> PathBuf {
+        self.folders
+            .get(&self.focused_pane())
+            .cloned()
+            .unwrap_or_else(|| self.folder.clone())
+    }
+
+    /// The view of the pane its keys go to.
+    pub fn focused(&self) -> Entity<TerminalView> {
+        let id = self.focused_pane();
+        self.views.get(&id).cloned().unwrap_or_else(|| {
+            log::error!("app: session pane {id} has no view");
+            self.terminal.clone()
+        })
+    }
+
+    /// Drops the pane `id` and its view, its row's keys falling back to the tree's first pane; `None` while it is the row's last pane, whose row closes instead.
+    pub fn drop_pane(&mut self, id: PaneId) -> Option<Entity<TerminalView>> {
+        let view = self.views.get(&id)?.clone();
+        let (panes, focus) = self.panes.without(id, self.focus)?;
+        self.panes = panes;
+        self.focus = focus;
+        self.pane_events.remove(&id);
+        self.views.remove(&id);
+        self.folders.remove(&id);
+        if self.terminal.entity_id() == id {
+            match self.views.get(&focus) {
+                Some(kept) => self.terminal = kept.clone(),
+                None => log::error!("app: session pane {focus} has no view"),
+            }
+        }
+        Some(view)
+    }
+    /// Keeps the subscription that carries what the split pane `id` reports, until its pane goes.
+    pub fn register_pane(&mut self, id: PaneId, events: Subscription) {
+        self.pane_events.insert(id, events);
+    }
+    /// The look its mark takes from its terminals now: the worst across every leaf pane.
     pub fn looks(&self, cx: &App) -> Option<Look> {
-        let view = self.terminal.read(cx);
-        let failed = view.ended().is_some_and(|code| code != 0);
-        look(view.records().shown().map(|(_, record)| record), failed)
+        orb::worst(self.leaf_views().map(|view| {
+            let view = view.read(cx);
+            let failed = view.ended().is_some_and(|code| code != 0);
+            look(view.records().shown().map(|(_, record)| record), failed)
+        }))
+    }
+
+    /// Every leaf pane's view, in layout order; a pane with no view yet is skipped.
+    fn leaf_views(&self) -> impl Iterator<Item = &Entity<TerminalView>> {
+        let views = &self.views;
+        self.panes
+            .leaves()
+            .into_iter()
+            .filter_map(move |id| views.get(&id))
     }
 
     /// Notes the look its mark takes `now`; true while the mark moves.
@@ -152,7 +218,7 @@ pub fn row(
                 }),
         );
     let item = match &session.editing {
-        Some((input, _)) => item.editor(editor(workspace, session, input)),
+        Some((input, _)) => item.editor(editor(workspace, input)),
         None => item,
     };
     let mark = mark(session, now, cx);
@@ -182,19 +248,15 @@ pub fn row(
 }
 
 /// The field a session's row renames it with; Escape drops what it holds.
-fn editor(
-    workspace: &Entity<Workspace>,
-    session: &Session,
-    input: &Entity<TextInput>,
-) -> impl IntoElement {
-    let (workspace, id) = (workspace.clone(), session.terminal.entity_id());
+fn editor(workspace: &Entity<Workspace>, input: &Entity<TextInput>) -> impl IntoElement {
+    let workspace = workspace.clone();
     div()
         // A press selecting text stays the field's: the row would lift it for a drag.
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_key_down(move |event, window, cx| {
             if event.keystroke.key == "escape" {
                 cx.stop_propagation();
-                workspace.update(cx, |this, cx| this.end_rename(id, false, window, cx));
+                workspace.update(cx, |this, cx| this.end_rename(false, window, cx));
             }
         })
         .child(Input::new(input).size(ControlSize::Sm))
@@ -229,13 +291,14 @@ fn mark(session: &Session, now: Instant, cx: &App) -> Option<AnyElement> {
     };
     let pid = session.terminal.read(cx).pid() as usize;
     // Hover reads the records as they stand, so an open one follows them, and scrolls within the window.
-    let watched = session.terminal.downgrade();
+    let watched: Vec<_> = session.leaf_views().map(Entity::downgrade).collect();
     let tip = Tooltip::rich(move |window, cx| {
-        let lines = watched.upgrade().map_or_else(Vec::new, |terminal| {
-            let view = terminal.read(cx);
+        let panes = watched.iter().filter_map(|view| {
+            let view = view.upgrade()?.read(cx);
             let failed = view.ended().filter(|&code| code != 0);
-            hover(view.records(), failed, cx.global::<I18n>())
+            Some((view.records(), failed))
         });
+        let lines = hover(panes, cx.global::<I18n>());
         let room = window.viewport_size().height - rems(3.).to_pixels(window.rem_size());
         div()
             .id("session-hover")
@@ -260,14 +323,26 @@ fn mark(session: &Session, now: Instant, cx: &App) -> Option<AnyElement> {
     )
 }
 
-/// What hover shows: a line for each record, ten at most, then a failed command's status.
-pub fn hover(records: &Records, failed: Option<i32>, words: &I18n) -> Vec<SharedString> {
-    let mut lines: Vec<SharedString> = records
-        .iter()
-        .take(LISTED)
-        .map(|(id, record)| line(records, id, record, words).into())
-        .collect();
-    let more = records.iter().count().saturating_sub(LISTED);
+/// What hover shows across a session's panes: each record, ten at most, then how many more, then a failure.
+pub fn hover<'a>(
+    panes: impl Iterator<Item = (&'a Records, Option<i32>)>,
+    words: &I18n,
+) -> Vec<SharedString> {
+    let mut lines: Vec<SharedString> = Vec::new();
+    let mut more = 0usize;
+    let mut failed = None;
+    for (records, code) in panes {
+        failed = failed.or(code);
+        let count = records.iter().count();
+        let taken = LISTED.saturating_sub(lines.len()).min(count);
+        lines.extend(
+            records
+                .iter()
+                .take(taken)
+                .map(|(id, record)| line(records, id, record, words).into()),
+        );
+        more += count - taken;
+    }
     if more > 0 {
         lines.push(words.text("et.status.more", &[("count", &more.to_string())]));
     }

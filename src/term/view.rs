@@ -212,6 +212,11 @@ impl TerminalView {
         self.pty.pid
     }
 
+    /// The grid's columns and lines, as the pane draws now.
+    pub fn grid(&self) -> (usize, usize) {
+        let term = self.pty.term.lock();
+        (term.columns(), term.screen_lines())
+    }
     /// Where the cursor is drawn on its way to `to`, in cells.
     pub(super) fn glide_position(&self, to: (usize, usize)) -> (f32, f32) {
         let end = (to.0 as f32, to.1 as f32);

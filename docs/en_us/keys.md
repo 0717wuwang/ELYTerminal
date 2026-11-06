@@ -2,7 +2,7 @@
 
 English / [中文](../zh_cn/keys.md)
 
-Settings › Terminal lists them all, as this platform binds them.
+Settings › Terminal lists them all, as this platform binds them, and holds the panes' keys to change. A pane key is taken before the terminal: a program receives no Alt-\, Alt-/ or Alt-Arrow.
 
 | | macOS | Windows and Linux |
 |---|---|---|
@@ -12,6 +12,10 @@ Settings › Terminal lists them all, as this platform binds them.
 | Next, previous session | Ctrl-Tab, Ctrl-Shift-Tab | Ctrl-Tab, Ctrl-Shift-Tab |
 | Sessions column | Cmd-B | Ctrl-Shift-B |
 | Right column | Cmd-Alt-B | Ctrl-Shift-Alt-B |
+| Split right, split down | Alt-\, Alt-/ | Alt-\, Alt-/ |
+| Close pane | Alt-W | Alt-W |
+| Focus the pane left, right, up, down | Alt-Arrow | Alt-Arrow |
+| Focus at an edge | runs round to the far side, and round again | the same |
 | Copy, paste | Cmd-C, Cmd-V | Ctrl-Shift-C, Ctrl-Shift-V; on Windows Ctrl-V pastes too |
 | Copy the selection, or paste when none | Right press, with Settings › Terminal › Right click pastes on | Right press, with that switch on; on by default on Windows |
 | Select all | Cmd-A | Ctrl-Shift-A |

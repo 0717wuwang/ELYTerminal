@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::time::Instant;
 
 use ely_gpui_component::{
@@ -9,27 +10,31 @@ use ely_gpui_component::{
     typography::Caption,
 };
 use gpui::{
-    Action, App, AppContext, Context, Entity, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, KeyBinding, ParentElement, Render, StatefulInteractiveElement, StyleRefinement,
-    Styled, Subscription, Task, Window, actions, div, prelude::FluentBuilder,
+    Action, AppContext, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
+    ParentElement, Render, StatefulInteractiveElement, StyleRefinement, Styled, Subscription, Task,
+    Window, actions, div, prelude::FluentBuilder,
 };
+pub use keys::{apply_pane_keys, bind_keys};
 
 use crate::{
     blur::Blur,
     files::{Files, Here},
     git::panel::{Acted, GitPanel},
     menus,
-    sessions::{self, Session, orb},
+    sessions::{self, Session, orb, pane::PaneNode},
     settings::{PanelTab, SettingsStore, window::OpenSettings},
     term::{Events, Launch, Pty, TerminalView},
 };
 
 mod events;
 mod folder;
+mod keys;
 mod panel;
+mod panes;
 mod rename;
 mod reorder;
 mod session;
+mod split;
 mod toggles;
 mod wallpaper;
 mod widths;
@@ -46,7 +51,14 @@ actions!(
         CloseSession,
         NextSession,
         PreviousSession,
-        LastSession
+        LastSession,
+        SplitRight,
+        SplitDown,
+        ClosePane,
+        FocusPaneLeft,
+        FocusPaneRight,
+        FocusPaneUp,
+        FocusPaneDown
     ]
 );
 
@@ -61,33 +73,11 @@ pub const CONTEXT: &str = "Workspace";
 /// The window's title while the program names none.
 pub const TITLE: &str = "ELYTerminal";
 
-/// Ghostty's keys: Cmd on macOS; off it, Ctrl-Shift for keys a terminal takes, Alt for digits.
-pub fn bind_keys(cx: &mut App) {
-    let (sessions, panel, new, close, digit) = if cfg!(target_os = "macos") {
-        ("cmd-b", "cmd-alt-b", "cmd-t", "cmd-w", "cmd")
-    } else {
-        (
-            "ctrl-shift-b",
-            "ctrl-shift-alt-b",
-            "ctrl-shift-t",
-            "ctrl-shift-w",
-            "alt",
-        )
-    };
-    let context = Some(CONTEXT);
-    cx.bind_keys([
-        KeyBinding::new(sessions, ToggleSessions, context),
-        KeyBinding::new(panel, TogglePanel, context),
-        KeyBinding::new(new, NewSession, context),
-        KeyBinding::new(close, CloseSession, context),
-        KeyBinding::new("ctrl-tab", NextSession, context),
-        KeyBinding::new("ctrl-shift-tab", PreviousSession, context),
-        KeyBinding::new(&format!("{digit}-9"), LastSession, context),
-    ]);
-    cx.bind_keys(
-        (1..=8).map(|n| KeyBinding::new(&format!("{digit}-{n}"), SelectSession(n - 1), context)),
-    );
-}
+/// A cell's size in pixels before the font is measured, as a program's first grid takes it.
+pub(crate) const CELL: (u16, u16) = (8, 16);
+/// The fewest columns or lines a pane draws, so a split leaves each pane a usable grid.
+pub(crate) const MIN_COLUMNS: usize = 10;
+pub(crate) const MIN_LINES: usize = 8;
 
 /// The main window's content: sessions, the terminal, and Git or Files, in Ely's columns.
 pub struct Workspace {
@@ -176,6 +166,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         let terminal = cx.new(|cx| TerminalView::new(pty, events, window, cx));
+        let views = BTreeMap::from([(terminal.entity_id(), terminal.clone())]);
         let id = terminal.entity_id();
         let events = cx.subscribe_in(&terminal, window, move |this, _, event, window, cx| {
             this.session_event(id, event, window, cx)
@@ -185,19 +176,28 @@ impl Workspace {
             .as_ref()
             .map_or_else(String::new, |(program, _)| program.clone());
         let pid = terminal.read(cx).pid();
-        log::info!("app: session {pid} opens in {}", launch.cwd.display());
+        let reports = launch.reports;
+        let folders = BTreeMap::from([(id, launch.cwd.clone())]);
+        let folder = launch.cwd.clone();
+        log::info!("app: session {pid} opens in {}", folder.display());
         self.sessions.push(Session {
             terminal,
             title: String::new(),
             name: String::new(),
             editing: None,
-            folder: launch.cwd,
+            folder,
             shell,
             args,
-            reports: launch.reports,
+            launch,
+            views,
+            folders,
+            reports,
             bell: false,
             waiting: false,
             look: None,
+            panes: PaneNode::leaf(id),
+            focus: id,
+            pane_events: BTreeMap::new(),
             _events: events,
         });
     }
@@ -235,18 +235,21 @@ impl Workspace {
         if index != self.active
             && let Some(hidden) = self.sessions.get(self.active)
         {
-            hidden.terminal.update(cx, |view, cx| {
-                view.let_go(cx);
-                view.set_front(false, window);
-            });
+            for view in hidden.views.values() {
+                view.update(cx, |view, cx| {
+                    view.let_go(cx);
+                    view.set_front(false, window);
+                });
+            }
         }
         let session = &mut self.sessions[index];
         session.bell = false;
         session.waiting = false;
-        session
-            .terminal
-            .update(cx, |view, _| view.set_front(true, window));
-        window.focus(&session.terminal.focus_handle(cx), cx);
+        // Every pane of the shown session draws again, keys back in the pane it left them in.
+        for view in session.views.values() {
+            view.update(cx, |view, _| view.set_front(true, window));
+        }
+        window.focus(&session.focused().focus_handle(cx), cx);
         let folder = session.folder.clone();
         self.files.update(cx, |files, cx| files.show(&folder, cx));
         self.git.update(cx, |git, cx| git.show(&folder, cx));
@@ -312,6 +315,7 @@ impl Render for Workspace {
         self.background.fit(window);
         let now = Instant::now();
         self.tick(now, cx);
+        let shown = panes::shown_pane(self, cx);
         let settings = SettingsStore::get(cx).clone();
         let base = cx.theme().colors.bg;
         let workspace = cx.entity();
@@ -351,10 +355,6 @@ impl Render for Workspace {
             .children(gear)
             .child(right);
         let mut shell = ColumnShell::new("workspace").glass();
-        let shown = self
-            .sessions
-            .get(self.active)
-            .map(|session| session.terminal.clone());
         let mut terminal = ShellColumn::new("terminal")
             .title(self.title().to_string())
             .child(
@@ -429,7 +429,8 @@ impl Render for Workspace {
             shell = shell.column(terminal.action(end));
         }
         // The context sits above the focus root, so its keys work wherever focus is.
-        crate::interface::dress(div(), cx)
+        let content = panes::pane_actions(crate::interface::dress(div(), cx), cx);
+        content
             .size_full()
             .key_context(CONTEXT)
             .map(menus::window_actions)
