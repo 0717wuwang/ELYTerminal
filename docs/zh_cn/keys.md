@@ -2,7 +2,7 @@
 
 [English](../en_us/keys.md) / 中文
 
-设置 › 终端 列出全部快捷键，按本平台的绑定；分屏窗格的按键也在那里改。窗格按键先于终端生效：程序收不到 Alt-\ 、Alt-/ 与 Alt-方向键。
+设置 › 终端 列出全部快捷键，按本平台的绑定；分屏窗格的按键也在那里改。窗格按键先于终端生效：程序收不到 Alt-\、Alt-/ 与 Alt-方向键。
 
 | | macOS | Windows 和 Linux |
 |---|---|---|
@@ -12,11 +12,10 @@
 | 下一个、上一个会话 | Ctrl-Tab、Ctrl-Shift-Tab | Ctrl-Tab、Ctrl-Shift-Tab |
 | 会话栏 | Cmd-B | Ctrl-Shift-B |
 | 右侧栏 | Cmd-Alt-B | Ctrl-Shift-Alt-B |
-| 向右、向下分屏 | Alt-\ 、Alt-/ | Alt-\ 、Alt-/ |
+| 向右、向下分屏 | Alt-\、Alt-/ | Alt-\、Alt-/ |
 | 关闭当前窗格 | Alt-W | Alt-W |
 | 聚焦左、右、上、下窗格 | Alt-方向键 | Alt-方向键 |
 | 焦点已到边 | 绕回另一头的窗格，循环 | 同左 |
-
 | 拷贝、粘贴 | Cmd-C、Cmd-V | Ctrl-Shift-C、Ctrl-Shift-V；在 Windows 上 Ctrl-V 也粘贴 |
 | 拷贝选中文字，没有选中时粘贴 | 右键，需打开设置 › 终端 › 右键粘贴 | 右键，需打开同一开关；Windows 上默认打开 |
 | 全选 | Cmd-A | Ctrl-Shift-A |

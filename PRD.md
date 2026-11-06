@@ -96,6 +96,13 @@ Ghostty is the bar for what the terminal does, 1.4's kitty graphics, clipboard, 
 - A drag on a row moves it to another place in the list, and the session shown stays shown; Drag sessions to reorder in Settings › Terminal turns the drag off.
 - Rename: a double press on a row's title opens a field in its place; Enter keeps the name, Escape drops it. The name shows in the row, the terminal's header and the window's title over the program's own until renamed again; an empty name gives the title back to the program.
 - A session whose program ends closes its row. The last row closing closes the window.
+- A session's terminal holds panes: Split right and Split down cut the pane that holds the keys in two, or the pane a row's menu names, and the new pane runs the session's own program in the folder the pane it cut last reported, taking the keys. A split is refused, and says why, where the smaller side would hold under 10 columns or 8 lines.
+- The pane that holds the keys wears the theme's accent frame, and a press on any pane gives that pane the keys. Alt with an arrow takes the pane on that side, and at an edge runs round to the far side, never out of the session; Tab stays the terminal's.
+- A divider moves with a drag, and the ratio it leaves holds for the session's life alone: no setting keeps it.
+- Closing a pane leaves its sibling in its place, a split taking the pane's place whole. A row's last pane closing closes the row, and the window with its last row.
+- A row and its hover speak for every pane: the most pressing state, waiting first, then error, done, working and calm, its last command's failure among them.
+- A session left and shown again keeps its layout, the pane that held the keys taking them back; its title stays the first pane's program title.
+- The panes' keys are the user's, recorded in Settings › Terminal: Split right, Split down, Close pane and the four side moves, each key taken before the terminal.
 - A bell in a hidden session marks its row.
 - A row shows its session's status: working, with its progress where known; waiting on the user, for a permission, a question or a login; done; error; and a mark when the last command failed. Hover shows each record's program, title and message. A hidden session that starts waiting marks its row until it is shown.
 - The mark is 3 by 3 dots that move: work ripples, or fills by its progress; waiting dips; a settled state draws its shape, then holds still.

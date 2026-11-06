@@ -12,6 +12,4 @@ The skills speak in terms of five canonical triage roles. This file maps those r
 
 When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the corresponding label string from this table.
 
-This repo tracks issues as local markdown files (see `issue-tracker.md`), so a "label" is the `Status:` line near the top of an issue file. Write `Status: ready-for-agent` and so on.
-
-Edit the "Label in our tracker" column to match whatever vocabulary you actually use.
+This repo tracks issues as local markdown files (see `issue-tracker.md`), so a "label" is the `Status:` line near the top of an issue file. Write `Status: ready-for-agent` and so on; a ticket taken for work reads `claimed`, and one that finished reads `done`, or `resolved` when it answered a question.

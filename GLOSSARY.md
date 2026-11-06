@@ -2,21 +2,21 @@
 
 ELYTerminal 的核心领域词汇。与实现票、ADR 用词保持一致；不要漂到同义词。
 
-> 分屏（split panes）的数据模型已落地（`src/sessions/pane.rs` 的 `PaneNode` /
-> `Session.panes` / `Session.focus`）。树布局与渲染（票 03）仍在进行。标 **(设计)** 的
-> 细节描述 `.scratch/split-panes/spec.md` 定下、随实现收敛的形状。
+> 分屏（split panes）已落地：`src/sessions/pane.rs` 的 `PaneNode` / `Session.panes` /
+> `Session.focus`，树的布局与渲染、焦点框、分隔条拖动与关格都在。术语以实现为准，
+> 设计记录见 `.scratch/split-panes/spec.md` 与 `docs/adr/0007-session-pane-tree.md`。
 
 ## session
 
 一个**顶层会话**：左侧 sessions 列表里的**一行**，`Workspace.sessions: Vec<Session>`
-里的一项。拥有自己的标题、状态 orb、生命周期，挂一棵 pane 树 **(设计)**。
+里的一项。拥有自己的标题、状态 orb、生命周期，挂一棵 pane 树。
 
-- 实现：`Session`（`src/sessions.rs:34`），由 `Workspace`（`src/workspace.rs:77`）持有。
+- 实现：`Session`（`src/sessions.rs:34`），由 `Workspace`（`src/workspace.rs:83`）持有。
 - 边界：分屏**不**新增 session。session 只由「新建 / 复制 / 在此目录新建」产生。
 
 ## pane
 
-分屏后真正画终端的**一格**：**独立 pty 进程 + 独立视图**，但**不是**顶层 session **(设计)**。
+分屏后真正画终端的**一格**：**独立 pty 进程 + 独立视图**，但**不是**顶层 session。
 叶子 pane 挂一个 `TerminalView` 和一个 `Pty`。
 
 - 实现：pane 的身份是它的 `PaneId`（复用该格 `TerminalView` 的 entity id）；各格视图存在
@@ -26,7 +26,7 @@ ELYTerminal 的核心领域词汇。与实现票、ADR 用词保持一致；不�
 
 ## split 树（pane 树）
 
-一个 session 内 pane 的**任意二叉切分树**，`PaneNode`，形状决定布局 **(设计)**。
+一个 session 内 pane 的**任意二叉切分树**，`PaneNode`，形状决定布局。
 叶子是 pane，内部节点 `Split{ axis, first, second, ratio }` 是一次横切 / 竖切，
 - 实现：`Session.panes: PaneNode`（根即整棵树，无单独 `PaneTree` 类型），
   `src/sessions/pane.rs`。内部节点的 `axis: Axis` 取 `LeftRight`（左右切）或
@@ -36,7 +36,7 @@ ELYTerminal 的核心领域词汇。与实现票、ADR 用词保持一致；不�
 
 ## focus 格
 
-一棵 pane 树里**键盘当前进的那个 pane**（`Session.focus: PaneId`）**（设计）**。
+一棵 pane 树里**键盘当前进的那个 pane**（`Session.focus: PaneId`）。
 四周画主题 accent 细边框；它是左侧高亮行；`rename` / 右键菜单作用于它；键盘事件
 只派发给它。
 
