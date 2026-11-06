@@ -16,7 +16,7 @@ use gpui::{
     IntoElement, ParentElement, Render, StatefulInteractiveElement, StyleRefinement, Styled,
     Subscription, Task, Window, actions, div, prelude::FluentBuilder,
 };
-pub use keys::bind_keys;
+pub use keys::{apply_pane_keys, bind_keys};
 
 use crate::{
     blur::Blur,
@@ -52,7 +52,14 @@ actions!(
         CloseSession,
         NextSession,
         PreviousSession,
-        LastSession
+        LastSession,
+        SplitRight,
+        SplitDown,
+        ClosePane,
+        FocusPaneLeft,
+        FocusPaneRight,
+        FocusPaneUp,
+        FocusPaneDown
     ]
 );
 
@@ -70,8 +77,8 @@ pub const TITLE: &str = "ELYTerminal";
 /// A cell's size in pixels before the font is measured, as a program's first grid takes it.
 pub(crate) const CELL: (u16, u16) = (8, 16);
 /// The fewest columns or lines a pane draws, so a split leaves each pane a usable grid.
-pub(crate) const MIN_COLUMNS: usize = 80;
-pub(crate) const MIN_LINES: usize = 24;
+pub(crate) const MIN_COLUMNS: usize = 10;
+pub(crate) const MIN_LINES: usize = 8;
 
 /// The main window's content: sessions, the terminal, and Git or Files, in Ely's columns.
 pub struct Workspace {
@@ -443,7 +450,8 @@ impl Render for Workspace {
             shell = shell.column(terminal.action(end));
         }
         // The context sits above the focus root, so its keys work wherever focus is.
-        crate::interface::dress(div(), cx)
+        let content = panes::pane_actions(crate::interface::dress(div(), cx), cx);
+        content
             .size_full()
             .key_context(CONTEXT)
             .map(menus::window_actions)
