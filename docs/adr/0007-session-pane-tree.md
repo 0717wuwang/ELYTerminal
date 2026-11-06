@@ -4,6 +4,7 @@
 - 日期：2026-11-05
 - 关联：`.scratch/split-panes/spec.md` 的 D1（本 ADR 落的就是 D1）
 - 实现票：`.scratch/split-panes/issues/01`–`06`（数据模型 / 菜单分屏 / 树布局 / 焦点 / 拖拽关格 / 状态聚合）
+- 后续：`.scratch/split-panes/issues/08`（每格目录、焦点菜单路径、最小尺寸提示）
 
 ## 背景
 

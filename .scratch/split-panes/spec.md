@@ -74,6 +74,11 @@ struct Session {
 - **env**：父格 pty 的 **`Launch::env` 快照**——不追父 shell 之后 `export` 的增量
   （那需要新加一个 OSC 把运行时环境吐回来，工作量高一档，本轮不做）。
 
+**实现（已落地）**：`Session.folders: BTreeMap<PaneId, PathBuf>` 记每格最近一次
+OSC 7，`split()` 取 `folders[target]` 作新格 `cwd`（缺省回退 `session.folder`）；
+程序与 env 取 `session.launch`（首格 spawn 时的快照）。`Session::focus_folder()`
+给 `duplicate` / 右键「New session here」用同一个来源。
+
 **理由**：`duplicate` 已经验证了「同 shell+args+reported folder」这条路；
 `Launch::env` 是 spawn 时快照，干净、够用，符合「携带原始屏的地址环境」的字面。
 
@@ -190,6 +195,11 @@ fn session_look(session: &Session, cx: &App) -> Option<Look> {
 焦点格同时是左侧高亮行；`rename` / 右键菜单作用于焦点格。每个 session 记自己的
 `focus: PaneId`。
 
+**实现（已落地）**：右键菜单的 Close session、分屏、状态点击都用 `session_index(id)`
+定位会话并按 `focused_pane()` 取焦点格；重命名不再绑实体 id（按「哪个会话正开着
+重命名框」定位），分屏后关格或换焦点都不丢。`duplicate` / `here` 的起始目录取
+`focus_folder()`。仅 `terminal`（首格）仍是标题、`pid` 的来源。
+
 **理由**：纯靠左侧高亮行不足以区分同屏多格（Ghostty/tmux/iTerm 都画 active border）。
 复用主题 accent 色，不引入新颜色常量（符合「颜色取自 Ely 主题」的既定品味）。
 
@@ -213,6 +223,11 @@ fn paint(pane: &Pane, is_focus: bool) {
 
 **决定**：**最小格尺寸自然封顶**——单方向不小于放下 10×8 单元格的像素（`MIN_COLUMNS = 10`、
 `MIN_LINES = 8`，见 `src/workspace.rs:73`）；达到就拒绝再切并提示。不设固定层数上限。
+
+**实现（已落地）**：`Workspace::split_shortage` 按 `PaneNode::size_of`（该格在屏幕上
+实际占的像素）与焦点格 `cell()` 换算，不足则 `refuse_split` 弹 `PromptLevel::Warning`
+（`et.pane.too_small` / `et.pane.too_small_body`）并记一条 warn 日志；
+`split/tests.rs` 覆盖按列、按行、恰好容纳与不可用 cell 四种情形。真机提示框尚未驱动。
 
 **理由**：无限嵌套会让格小到放不下 10×8；固定层数（如 3 层）则在不同窗口尺寸下
 要么太松要么太紧。用最小尺寸封顶既保证可用性又自然适应窗口大小——与仓库既有的
@@ -335,7 +350,7 @@ fn remove(node: PaneNode, target: PaneId) -> PaneNode {
 ## 明确的未决 / 后续轮
 
 - ~~快捷键具体键面（D9，下一轮）~~：已完成，见 D9 的「已定案」段。
-- 运行时 env 快照（D2 提到的新 OSC），本轮明确不做。
+- 运行时 env 快照（D2 提到的新 OSC），本轮明确不做；新格用首格 spawn 时的 `Launch::env`。
 - herdr 焦点跟随（`src/term/herdr`）如何与本地 pane 树共存，未讨论。
-- 现有 `duplicate` / `here`（`workspace/session.rs`）与分屏的关系：二者仍是「新增
-  顶层 session」，与分屏（新增 pane）是两条路径，未合并。
+- `duplicate` / `here` 与分屏共用同一条 `Workspace::open` 路径与同一个目录来源
+  （`focus_folder()`），但语义仍是「新增顶层 session」，不是「新增 pane」。
