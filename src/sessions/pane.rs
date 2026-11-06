@@ -158,8 +158,7 @@ impl PaneNode {
                 Branch::Second => second,
             };
         }
-        // The nearest split first: the pane steps to the sibling it shares that split with, before
-        // it crosses an outer split to another column or row.
+        // The nearest split first: a pane steps to its sibling before crossing an outer split.
         for (split, branch) in splits.into_iter().rev() {
             let PaneNode::Split {
                 axis,
